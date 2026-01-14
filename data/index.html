@@ -13,7 +13,8 @@
             <p class="subtitle" style="margin-bottom: 1rem;">An automated, programmable feeder interface to feed one special bird called Uma</p>
             <div class="current-time-display">
                 <h3 style="text-align: center; margin-bottom: 1rem;">
-                    Current System Time: <span id="current-time">--:--:--</span> <button id="sync-time-btn">Sync Time</button>
+                    Current System Time: <span id="current-time">--:--:--</span> 
+                    <!-- <button id="sync-time-btn">Sync Time</button> -->
                 </h3>
                 <h3 style="text-align: center; margin-bottom: 0.5rem;">
                     Battery: <span id="battery-status">Checking...</span>
@@ -109,7 +110,11 @@
 
         <div class="tab-content" id="settings">
             <div class="clock-container">
+
                 <form class="settings-form" id="settings-form">
+
+                    <button class="sync-time-btn" id="sync-time-btn">Sync Time</button>
+
                     <div class="form-group">
                         <label for="time-format">Time Format</label>
                         <select id="time-format">
@@ -133,7 +138,7 @@
                 </form>
             </div>
 
-            <div style="margin-top: 2rem; text-align: center;">
+            <div style="margin-top: 2rem; margin-bottom: 2rem; text-align: center;">
                 <button id="sleep-now-btn" style="background: #f44336; color: white; padding: 1rem 2rem; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer;">
                     Enter Sleep Mode Now
                 </button>
