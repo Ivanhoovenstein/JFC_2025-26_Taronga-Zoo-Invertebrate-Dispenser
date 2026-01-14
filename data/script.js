@@ -92,65 +92,65 @@ async function apiDelete(path) {
 // ----------------------
 // Load System Clock Time
 // ----------------------
-// async function updateCurrentTime() {
-//     try {
-//         const res = await fetch('/api/time');
-//         const data = await res.json();
-        
-//         if (data) {
-//             const hours = String(data.hour).padStart(2, '0');
-//             const minutes = String(data.minute).padStart(2, '0');
-//             const seconds = String(data.second).padStart(2, '0');
-            
-//             let timeString;
-//             if (settings.timeFormat === '12') {
-//                 const hour12 = data.hour % 12 || 12;
-//                 const ampm = data.hour >= 12 ? 'PM' : 'AM';
-//                 timeString = `${String(hour12).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`;
-//             } else {
-//                 timeString = `${hours}:${minutes}:${seconds}`;
-//             }
-            
-//             document.getElementById('current-time').textContent = timeString;
-//         }
-//     } catch (error) {
-//         console.error('Error fetching time:', error);
-//         document.getElementById('current-time').textContent = 'Error';
-//     }
-// }
-
 async function updateCurrentTime() {
     try {
         const res = await fetch('/api/time');
         const data = await res.json();
         
         if (data) {
-            // Create Date object from RTC data (UTC)
-            const utcDate = new Date(Date.UTC(
-                data.year || 2025,
-                (data.month || 1) - 1, 
-                data.day || 1,
-                data.hour,
-                data.minute,
-                data.second
-            ));
+            const hours = String(data.hour).padStart(2, '0');
+            const minutes = String(data.minute).padStart(2, '0');
+            const seconds = String(data.second).padStart(2, '0');
             
-            // Display in AEST timezone
-            const aestTime = utcDate.toLocaleString('en-AU', {
-                timeZone: 'Australia/Sydney',
-                hour12: settings.timeFormat === '12',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
+            let timeString;
+            if (settings.timeFormat === '12') {
+                const hour12 = data.hour % 12 || 12;
+                const ampm = data.hour >= 12 ? 'PM' : 'AM';
+                timeString = `${String(hour12).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`;
+            } else {
+                timeString = `${hours}:${minutes}:${seconds}`;
+            }
             
-            document.getElementById('current-time').textContent = aestTime;
+            document.getElementById('current-time').textContent = timeString;
         }
     } catch (error) {
         console.error('Error fetching time:', error);
         document.getElementById('current-time').textContent = 'Error';
     }
 }
+
+// async function updateCurrentTime() {
+//     try {
+//         const res = await fetch('/api/time');
+//         const data = await res.json();
+        
+//         if (data) {
+//             // Create Date object from RTC data (UTC)
+//             const utcDate = new Date(Date.UTC(
+//                 data.year || 2025,
+//                 (data.month || 1) - 1, 
+//                 data.day || 1,
+//                 data.hour,
+//                 data.minute,
+//                 data.second
+//             ));
+            
+//             // Display in AEST timezone
+//             const aestTime = utcDate.toLocaleString('en-AU', {
+//                 timeZone: 'Australia/Sydney',
+//                 hour12: settings.timeFormat === '12',
+//                 hour: '2-digit',
+//                 minute: '2-digit',
+//                 second: '2-digit'
+//             });
+            
+//             document.getElementById('current-time').textContent = aestTime;
+//         }
+//     } catch (error) {
+//         console.error('Error fetching time:', error);
+//         document.getElementById('current-time').textContent = 'Error';
+//     }
+// }
 
 function startTimeUpdates() {
     // Update immediately
@@ -399,22 +399,49 @@ function setupEventListeners() {
 
 }
 
+function getAESTOffset() {
+    const now = new Date();
+    const sydneyTime = new Date(now.toLocaleString('en-US', { timeZone: 'Australia/Sydney' }));
+    const utcTime = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
+    return sydneyTime.getTime() - utcTime.getTime();
+}
+
 async function syncTime() {
-    // Get phone time in milliseconds
-    const timestampMs = Date.now();
-
-    // Send to ESP32 backend
-    const result = await apiPost('/api/sync-time', {
-        timestamp: timestampMs
-    });
-
-    if (result && result.success) {
-        // Force update UI
-        updateCurrentTime();
-
-        showNotification('System clock synced successfully!');
-    } else {
-        showNotification('Failed to sync clock');
+    try {
+        // Get current UTC time
+        const utcNow = Date.now();
+        
+        // Get AEST offset (handles DST automatically)
+        const offset = getAESTOffset();
+        
+        // Convert to AEST
+        const aestTimestamp = utcNow + offset;
+        
+        // Determine timezone name
+        const isDST = offset > (10 * 60 * 60 * 1000);
+        const tzName = isDST ? 'AEDT (UTC+11)' : 'AEST (UTC+10)';
+        
+        // Create date object to verify
+        const aestDate = new Date(aestTimestamp);
+        
+        console.log('=== Time Sync ===');
+        console.log('UTC time:', new Date(utcNow).toISOString());
+        console.log('AEST offset:', offset / (60 * 60 * 1000), 'hours');
+        console.log('AEST time:', aestDate.toLocaleString('en-AU', { timeZone: 'Australia/Sydney' }));
+        console.log('Timezone:', tzName);
+        console.log('Sending timestamp:', aestTimestamp);
+        
+        const result = await apiPost('/api/sync-time', { timestamp: aestTimestamp });
+        
+        if (result && result.success) {
+            showNotification(`System time synced to ${tzName}`);
+            updateCurrentTime();
+        } else {
+            showNotification('Failed to sync time');
+        }
+    } catch (error) {
+        console.error('Time sync error:', error);
+        showNotification('Failed to sync time');
     }
     
 }
@@ -514,6 +541,7 @@ async function init() {
     setupEventListeners();
 
     // Start System Clock
+    syncTime();
     startTimeUpdates();
 
     // Refresh Mode Status every 60 seconds

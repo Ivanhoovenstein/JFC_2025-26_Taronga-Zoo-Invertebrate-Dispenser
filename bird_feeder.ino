@@ -39,13 +39,12 @@ struct ModeConfig {
     // Regular interval config
     int regIntervalHours;
     int regIntervalMinutes;
-    unsigned long regIntervalLastTrigger;  // millis() when last triggered
+    uint32_t regIntervalLastTriggerUnix;  // Unix timestamp (AEST) when last triggered
     
     // Random interval config
     int randIntervalHours;
     int randIntervalMinutes;
-    unsigned long randIntervalStartTime;   // When this interval period started
-    unsigned long randIntervalTriggerTime; // Random time within interval to trigger
+    uint32_t randIntervalNextTriggerUnix; // Unix timestamp (AEST) when to trigger
 };
 
 ModeConfig modeConfig;
@@ -57,80 +56,132 @@ std::vector<Alarm> alarms;
 // Calculate next wake time and configure RTC alarm
 // ----------------------------------------
 void configureNextWake() {
-    DateTime now = rtc.now();
+    DateTime now = rtc.now(); // AEST time
     DateTime nextWake;
     bool alarmSet = false;
     
+    Serial.println("\n=== Configuring Next Wake ===");
+    Serial.printf("Current time (AEST): %04d-%02d-%02d %02d:%02d:%02d\n",
+                 now.year(), now.month(), now.day(),
+                 now.hour(), now.minute(), now.second());
+    
     if (modeConfig.activeMode == "set_times") {
+        Serial.println("Mode: Set Times");
+        
         // Find next active alarm
         for (auto &a : alarms) {
             if (a.active) {
                 int alarmHour = a.time.substring(0, 2).toInt();
                 int alarmMin = a.time.substring(3, 5).toInt();
                 
-                // Check if alarm is today or tomorrow
-                if (alarmHour > now.hour() || 
-                    (alarmHour == now.hour() && alarmMin > now.minute())) {
-                    // Alarm is later today
-                    nextWake = DateTime(now.year(), now.month(), now.day(), 
-                                       alarmHour, alarmMin, 0);
+                // Create DateTime for alarm today (AEST)
+                DateTime alarmToday(now.year(), now.month(), now.day(), 
+                                   alarmHour, alarmMin, 0);
+                
+                // Check if alarm is in the future today
+                if (alarmToday.unixtime() > now.unixtime()) {
+                    nextWake = alarmToday;
                     alarmSet = true;
+                    Serial.printf("Next alarm today: %s\n", a.time.c_str());
                     break;
                 } else if (!alarmSet) {
-                    // First alarm tomorrow
-                    nextWake = DateTime(now.year(), now.month(), now.day() + 1, 
+                    // First alarm tomorrow (add 86400 seconds = 1 day)
+                    DateTime tomorrow(now.unixtime() + 86400UL);
+                    nextWake = DateTime(tomorrow.year(), tomorrow.month(), tomorrow.day(),
                                        alarmHour, alarmMin, 0);
                     alarmSet = true;
+                    Serial.printf("Next alarm tomorrow: %s\n", a.time.c_str());
                 }
             }
         }
+        
+        if (!alarmSet) {
+            Serial.println("No active alarms found");
+        }
     } 
     else if (modeConfig.activeMode == "regular_interval") {
-        // Calculate next trigger based on interval
-        unsigned long intervalSeconds = (modeConfig.regIntervalHours * 3600UL + 
-                                         modeConfig.regIntervalMinutes * 60UL);
+        Serial.println("Mode: Regular Interval");
+        
+        uint32_t intervalSeconds = (modeConfig.regIntervalHours * 3600UL + 
+                                     modeConfig.regIntervalMinutes * 60UL);
         
         if (intervalSeconds > 0) {
-            uint32_t currentTimestamp = now.unixtime();
-            uint32_t lastTriggerSeconds = modeConfig.regIntervalLastTrigger / 1000;
-            uint32_t nextTriggerSeconds = lastTriggerSeconds + intervalSeconds;
+            uint32_t currentUnix = now.unixtime();
             
-            // Handle millis overflow or first run
-            if (nextTriggerSeconds <= currentTimestamp) {
-                nextTriggerSeconds = currentTimestamp + intervalSeconds;
+            // If first run or no previous trigger
+            if (modeConfig.regIntervalLastTriggerUnix == 0) {
+                Serial.println("First run - scheduling next trigger from now");
+                nextWake = DateTime(currentUnix + intervalSeconds);
+                alarmSet = true;
+            } else {
+                // Calculate next trigger based on last trigger
+                uint32_t nextTriggerUnix = modeConfig.regIntervalLastTriggerUnix + intervalSeconds;
+                
+                // If we're past the next trigger time (overdue)
+                if (currentUnix >= nextTriggerUnix) {
+                    Serial.println("Overdue - triggering soon");
+                    // Trigger 1 minute from now
+                    nextWake = DateTime(currentUnix + 60);
+                } else {
+                    // Normal case - schedule for calculated time
+                    nextWake = DateTime(nextTriggerUnix);
+                    uint32_t remaining = nextTriggerUnix - currentUnix;
+                    Serial.printf("Next trigger in %lu seconds (%lu minutes)\n", 
+                                 remaining, remaining / 60);
+                }
+                alarmSet = true;
             }
             
-            nextWake = DateTime(nextTriggerSeconds);
-            alarmSet = true;
+            Serial.printf("Interval: %dh %dm (%lu seconds)\n", 
+                         modeConfig.regIntervalHours, 
+                         modeConfig.regIntervalMinutes,
+                         intervalSeconds);
+        } else {
+            Serial.println("Invalid interval (0 seconds)");
         }
     }
     else if (modeConfig.activeMode == "random_interval") {
-        // Use the pre-calculated random trigger time
-        if (modeConfig.randIntervalTriggerTime > 0) {
-            uint32_t triggerSeconds = modeConfig.randIntervalTriggerTime / 1000;
-            nextWake = DateTime(triggerSeconds);
+        Serial.println("Mode: Random Interval");
+        
+        if (modeConfig.randIntervalNextTriggerUnix > 0) {
+            uint32_t currentUnix = now.unixtime();
+            
+            // If we're past the trigger time (overdue)
+            if (currentUnix >= modeConfig.randIntervalNextTriggerUnix) {
+                Serial.println("Overdue - triggering soon");
+                nextWake = DateTime(currentUnix + 60);
+            } else {
+                // Normal case - use the pre-calculated random time
+                nextWake = DateTime(modeConfig.randIntervalNextTriggerUnix);
+                uint32_t remaining = modeConfig.randIntervalNextTriggerUnix - currentUnix;
+                Serial.printf("Next trigger in %lu seconds (%lu minutes)\n", 
+                             remaining, remaining / 60);
+            }
             alarmSet = true;
+        } else {
+            Serial.println("No random trigger time set");
         }
     }
     
     if (alarmSet) {
         // Set DS3231 alarm
-        // rtc.disableAlarm(1);
         rtc.disableAlarm(2);
         rtc.clearAlarm(1);
         rtc.clearAlarm(2);
-
         rtc.writeSqwPinMode(DS3231_OFF);
         
-        // Set Alarm 1 to trigger at specific date/time
+        // Set Alarm 1 to trigger at specific date/time (in AEST)
         rtc.setAlarm1(nextWake, DS3231_A1_Hour); // Match hours and minutes
         
-        Serial.printf("Next wake scheduled for: %04d-%02d-%02d %02d:%02d:%02d\n",
+        Serial.printf("Next wake scheduled for (AEST): %04d-%02d-%02d %02d:%02d:%02d\n",
                      nextWake.year(), nextWake.month(), nextWake.day(),
                      nextWake.hour(), nextWake.minute(), nextWake.second());
+        Serial.printf("Unix timestamp: %lu\n", nextWake.unixtime());
     } else {
         Serial.println("No alarm set - will wake on button press only");
     }
+    
+    Serial.println("=============================\n");
 }
 
 // ----------------------------------------
@@ -227,11 +278,10 @@ void saveModeConfig() {
     doc["activeMode"] = modeConfig.activeMode;
     doc["regIntervalHours"] = modeConfig.regIntervalHours;
     doc["regIntervalMinutes"] = modeConfig.regIntervalMinutes;
-    doc["regIntervalLastTrigger"] = modeConfig.regIntervalLastTrigger;
+    doc["regIntervalLastTriggerUnix"] = modeConfig.regIntervalLastTriggerUnix;
     doc["randIntervalHours"] = modeConfig.randIntervalHours;
     doc["randIntervalMinutes"] = modeConfig.randIntervalMinutes;
-    doc["randIntervalStartTime"] = modeConfig.randIntervalStartTime;
-    doc["randIntervalTriggerTime"] = modeConfig.randIntervalTriggerTime;
+    doc["randIntervalNextTriggerUnix"] = modeConfig.randIntervalNextTriggerUnix;
     
     String jsonStr;
     serializeJson(doc, jsonStr);
@@ -250,11 +300,10 @@ void loadModeConfig() {
         modeConfig.activeMode = "set_times";
         modeConfig.regIntervalHours = 0;
         modeConfig.regIntervalMinutes = 30;
-        modeConfig.regIntervalLastTrigger = 0;
+        modeConfig.regIntervalLastTriggerUnix = 0;
         modeConfig.randIntervalHours = 1;
         modeConfig.randIntervalMinutes = 0;
-        modeConfig.randIntervalStartTime = millis();
-        modeConfig.randIntervalTriggerTime = 0;
+        modeConfig.randIntervalNextTriggerUnix = 0;
         saveModeConfig();
         return;
     }
@@ -279,11 +328,10 @@ void loadModeConfig() {
     modeConfig.activeMode = doc["activeMode"].as<String>();
     modeConfig.regIntervalHours = doc["regIntervalHours"];
     modeConfig.regIntervalMinutes = doc["regIntervalMinutes"];
-    modeConfig.regIntervalLastTrigger = doc["regIntervalLastTrigger"];
+    modeConfig.regIntervalLastTriggerUnix = doc["regIntervalLastTriggerUnix"];
     modeConfig.randIntervalHours = doc["randIntervalHours"];
     modeConfig.randIntervalMinutes = doc["randIntervalMinutes"];
-    modeConfig.randIntervalStartTime = doc["randIntervalStartTime"];
-    modeConfig.randIntervalTriggerTime = doc["randIntervalTriggerTime"];
+    modeConfig.randIntervalNextTriggerUnix = doc["randIntervalNextTriggerUnix"];
     
     Serial.println("Loaded mode config: " + json);
 }
@@ -515,6 +563,16 @@ void registerRoutes() {
         server.send(200, "text/plain", "");
     });
 
+    // POST set mode to "set_times"
+    server.on("/api/mode/set-times", HTTP_POST, []() {
+        setCORSHeaders();
+        
+        modeConfig.activeMode = "set_times";
+        saveModeConfig();
+        
+        server.send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+
     // GET mode configuration
     server.on("/api/mode", HTTP_GET, []() {
         setCORSHeaders();
@@ -527,36 +585,66 @@ void registerRoutes() {
         doc["randIntervalMinutes"] = modeConfig.randIntervalMinutes;
         
         // Calculate next activation time based on mode
-        DateTime now = rtc.now();
+        DateTime now = rtc.now(); // AEST
+        uint32_t currentUnix = now.unixtime();
         String nextTime = "";
         
         if (modeConfig.activeMode == "set_times") {
             // Find next alarm
-            String currentTime = String(now.hour()) + ":" + String(now.minute());
             for (auto &a : alarms) {
-                if (a.active && a.time > currentTime) {
-                    nextTime = a.time;
-                    break;
+                if (a.active) {
+                    int alarmHour = a.time.substring(0, 2).toInt();
+                    int alarmMin = a.time.substring(3, 5).toInt();
+                    
+                    // Check if alarm is later today
+                    if (alarmHour > now.hour() || 
+                        (alarmHour == now.hour() && alarmMin > now.minute())) {
+                        nextTime = a.time;
+                        break;
+                    }
                 }
             }
             if (nextTime == "" && alarms.size() > 0) {
                 // Wrap to tomorrow's first alarm
-                nextTime = alarms[0].time + " (tomorrow)";
+                for (auto &a : alarms) {
+                    if (a.active) {
+                        nextTime = a.time + " (tomorrow)";
+                        break;
+                    }
+                }
             }
-        } else if (modeConfig.activeMode == "regular_interval") {
-            unsigned long intervalMs = (modeConfig.regIntervalHours * 3600UL + 
-                                        modeConfig.regIntervalMinutes * 60UL) * 1000UL;
-            unsigned long elapsed = millis() - modeConfig.regIntervalLastTrigger;
-            unsigned long remaining = intervalMs - elapsed;
-            
-            int remainingHours = (remaining / 1000 / 3600);
-            int remainingMinutes = ((remaining / 1000) % 3600) / 60;
-            nextTime = String(remainingHours) + "h " + String(remainingMinutes) + "m";
-        } else if (modeConfig.activeMode == "random_interval") {
-            unsigned long remaining = modeConfig.randIntervalTriggerTime - millis();
-            int remainingHours = (remaining / 1000 / 3600);
-            int remainingMinutes = ((remaining / 1000) % 3600) / 60;
-            nextTime = String(remainingHours) + "h " + String(remainingMinutes) + "m (random)";
+        } 
+        else if (modeConfig.activeMode == "regular_interval") {
+            if (modeConfig.regIntervalLastTriggerUnix > 0) {
+                uint32_t intervalSeconds = (modeConfig.regIntervalHours * 3600UL + 
+                                            modeConfig.regIntervalMinutes * 60UL);
+                uint32_t nextTriggerUnix = modeConfig.regIntervalLastTriggerUnix + intervalSeconds;
+                
+                if (currentUnix >= nextTriggerUnix) {
+                    nextTime = "Overdue";
+                } else {
+                    uint32_t remaining = nextTriggerUnix - currentUnix;
+                    int remainingHours = remaining / 3600;
+                    int remainingMinutes = (remaining % 3600) / 60;
+                    nextTime = String(remainingHours) + "h " + String(remainingMinutes) + "m";
+                }
+            } else {
+                nextTime = "Not started";
+            }
+        } 
+        else if (modeConfig.activeMode == "random_interval") {
+            if (modeConfig.randIntervalNextTriggerUnix > 0) {
+                if (currentUnix >= modeConfig.randIntervalNextTriggerUnix) {
+                    nextTime = "Overdue";
+                } else {
+                    uint32_t remaining = modeConfig.randIntervalNextTriggerUnix - currentUnix;
+                    int remainingHours = remaining / 3600;
+                    int remainingMinutes = (remaining % 3600) / 60;
+                    nextTime = String(remainingHours) + "h " + String(remainingMinutes) + "m (random)";
+                }
+            } else {
+                nextTime = "Not started";
+            }
         }
         
         doc["nextActivationTime"] = nextTime;
@@ -564,21 +652,6 @@ void registerRoutes() {
         String json;
         serializeJson(doc, json);
         server.send(200, "application/json", json);
-    });
-
-    server.on("/api/mode", HTTP_OPTIONS, []() {
-        setCORSHeaders();
-        server.send(200, "text/plain", "");
-    });
-
-    // POST set mode to "set_times"
-    server.on("/api/mode/set-times", HTTP_POST, []() {
-        setCORSHeaders();
-        
-        modeConfig.activeMode = "set_times";
-        saveModeConfig();
-        
-        server.send(200, "application/json", "{\"status\":\"ok\"}");
     });
 
     // POST set mode to "regular_interval"
@@ -592,9 +665,15 @@ void registerRoutes() {
         modeConfig.activeMode = "regular_interval";
         modeConfig.regIntervalHours = doc["hours"];
         modeConfig.regIntervalMinutes = doc["minutes"];
-        modeConfig.regIntervalLastTrigger = millis(); // Start interval now
+        
+        // Initialize with current time as last trigger
+        DateTime now = rtc.now();
+        modeConfig.regIntervalLastTriggerUnix = now.unixtime();
         
         saveModeConfig();
+        
+        Serial.printf("Regular interval set: %dh %dm, starting from now\n",
+                    modeConfig.regIntervalHours, modeConfig.regIntervalMinutes);
         
         server.send(200, "application/json", "{\"status\":\"ok\"}");
     });
@@ -612,13 +691,18 @@ void registerRoutes() {
         modeConfig.randIntervalMinutes = doc["minutes"];
         
         // Calculate random trigger time within interval
-        unsigned long intervalMs = (modeConfig.randIntervalHours * 3600UL + 
-                                    modeConfig.randIntervalMinutes * 60UL) * 1000UL;
-        unsigned long randomOffset = random(0, intervalMs);
-        modeConfig.randIntervalStartTime = millis();
-        modeConfig.randIntervalTriggerTime = millis() + randomOffset;
+        DateTime now = rtc.now();
+        uint32_t currentUnix = now.unixtime();
+        uint32_t intervalSeconds = (modeConfig.randIntervalHours * 3600UL + 
+                                    modeConfig.randIntervalMinutes * 60UL);
+        uint32_t randomOffset = random(0, intervalSeconds);
+        
+        modeConfig.randIntervalNextTriggerUnix = currentUnix + randomOffset;
         
         saveModeConfig();
+        
+        Serial.printf("Random interval set: %dh %dm, next trigger in %lu seconds\n",
+                    modeConfig.randIntervalHours, modeConfig.randIntervalMinutes, randomOffset);
         
         server.send(200, "application/json", "{\"status\":\"ok\"}");
     });
@@ -657,19 +741,19 @@ void registerRoutes() {
             return;
         }
         
-        // Get timestamp in milliseconds from JavaScript
+        // Get timestamp in milliseconds from JavaScript (already in AEST)
         long long timestampMs = doc["timestamp"];
         
-        // Convert to seconds (Unix timestamp)
+        // Convert to seconds
         time_t epoch = timestampMs / 1000;
         
-        // Create DateTime object from Unix timestamp
+        // Create DateTime object (this is AEST time)
         DateTime newTime(epoch);
         
-        // Set the RTC
+        // Set the RTC to AEST time
         rtc.adjust(newTime);
         
-        Serial.printf("RTC time synced to: %04d-%02d-%02d %02d:%02d:%02d\n",
+        Serial.printf("RTC time synced to AEST: %04d-%02d-%02d %02d:%02d:%02d\n",
                     newTime.year(), newTime.month(), newTime.day(),
                     newTime.hour(), newTime.minute(), newTime.second());
         
@@ -785,7 +869,8 @@ void checkTriggers() {
     }
     lastCheck = now;
 
-    DateTime rtcTime = rtc.now();
+    DateTime rtcTime = rtc.now(); // AEST time
+    uint32_t currentUnix = rtcTime.unixtime();
 
     // MODE 1: Set Times
     if (modeConfig.activeMode == "set_times") {
@@ -803,28 +888,29 @@ void checkTriggers() {
     
     // MODE 2: Regular Interval
     else if (modeConfig.activeMode == "regular_interval") {
-        unsigned long intervalMs = (modeConfig.regIntervalHours * 3600UL + 
-                                    modeConfig.regIntervalMinutes * 60UL) * 1000UL;
+        uint32_t intervalSeconds = (modeConfig.regIntervalHours * 3600UL + 
+                                     modeConfig.regIntervalMinutes * 60UL);
         
-        // Handle millis() overflow and check if interval has elapsed
-        if (intervalMs > 0) {
-            unsigned long elapsed;
-            
-            // Check for millis() overflow
-            if (now >= modeConfig.regIntervalLastTrigger) {
-                elapsed = now - modeConfig.regIntervalLastTrigger;
-            } else {
-                // Overflow occurred
-                elapsed = (ULONG_MAX - modeConfig.regIntervalLastTrigger) + now;
+        if (intervalSeconds > 0) {
+            // If first run, initialize
+            if (modeConfig.regIntervalLastTriggerUnix == 0) {
+                modeConfig.regIntervalLastTriggerUnix = currentUnix;
+                saveModeConfig();
+                Serial.println("Regular interval initialized");
             }
             
-            if (elapsed >= intervalMs) {
+            // Calculate next trigger time
+            uint32_t nextTriggerUnix = modeConfig.regIntervalLastTriggerUnix + intervalSeconds;
+            
+            // Check if it's time to trigger
+            if (currentUnix >= nextTriggerUnix) {
                 Serial.printf("REGULAR INTERVAL: Triggered after %dh %dm\n", 
                              modeConfig.regIntervalHours, modeConfig.regIntervalMinutes);
                 
                 doSomething();
                 
-                modeConfig.regIntervalLastTrigger = now;
+                // Update last trigger time
+                modeConfig.regIntervalLastTriggerUnix = currentUnix;
                 saveModeConfig();
             }
         }
@@ -832,38 +918,34 @@ void checkTriggers() {
     
     // MODE 3: Random Interval
     else if (modeConfig.activeMode == "random_interval") {
-        // Check if we've reached the random trigger time
-        if (modeConfig.randIntervalTriggerTime > 0) {
-            bool shouldTrigger = false;
+        // If no trigger time set, initialize one
+        if (modeConfig.randIntervalNextTriggerUnix == 0) {
+            uint32_t intervalSeconds = (modeConfig.randIntervalHours * 3600UL + 
+                                        modeConfig.randIntervalMinutes * 60UL);
+            uint32_t randomOffset = random(0, intervalSeconds);
+            modeConfig.randIntervalNextTriggerUnix = currentUnix + randomOffset;
+            saveModeConfig();
             
-            // Check for millis() overflow
-            if (now >= modeConfig.randIntervalStartTime) {
-                // Normal case - no overflow
-                shouldTrigger = (now >= modeConfig.randIntervalTriggerTime);
-            } else {
-                // Overflow occurred
-                shouldTrigger = true; // Trigger immediately after overflow
-            }
+            Serial.printf("Random interval initialized: trigger in %lu seconds\n", randomOffset);
+        }
+        
+        // Check if it's time to trigger
+        if (currentUnix >= modeConfig.randIntervalNextTriggerUnix) {
+            Serial.printf("RANDOM INTERVAL: Triggered at random time within %dh %dm window\n",
+                         modeConfig.randIntervalHours, modeConfig.randIntervalMinutes);
             
-            if (shouldTrigger) {
-                Serial.printf("RANDOM INTERVAL: Triggered at random time within %dh %dm window\n",
-                             modeConfig.randIntervalHours, modeConfig.randIntervalMinutes);
-                
-                doSomething();
-                
-                // Calculate next random trigger time
-                unsigned long intervalMs = (modeConfig.randIntervalHours * 3600UL + 
-                                            modeConfig.randIntervalMinutes * 60UL) * 1000UL;
-                unsigned long randomOffset = random(0, intervalMs);
-                
-                modeConfig.randIntervalStartTime = now;
-                modeConfig.randIntervalTriggerTime = now + randomOffset;
-                
-                saveModeConfig();
-                
-                Serial.printf("Next random trigger in %lu ms (%.1f minutes)\n", 
-                             randomOffset, randomOffset / 60000.0);
-            }
+            doSomething();
+            
+            // Calculate next random trigger time
+            uint32_t intervalSeconds = (modeConfig.randIntervalHours * 3600UL + 
+                                        modeConfig.randIntervalMinutes * 60UL);
+            uint32_t randomOffset = random(0, intervalSeconds);
+            modeConfig.randIntervalNextTriggerUnix = currentUnix + randomOffset;
+            
+            saveModeConfig();
+            
+            Serial.printf("Next random trigger in %lu seconds (%.1f minutes)\n", 
+                         randomOffset, randomOffset / 60.0);
         }
     }
 }
@@ -903,6 +985,40 @@ void setup() {
     
     // Check wake reason
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+
+    if (!rtc.begin(&Wire)) {
+        Serial.println("RTC not found!");
+    } else {
+        Serial.println("RTC initialized");
+        
+        // Clear any pending alarms
+        rtc.clearAlarm(1);
+        rtc.clearAlarm(2);
+        
+        // Only adjust time on first boot
+        if (wakeup_reason == ESP_SLEEP_WAKEUP_UNDEFINED) {
+            rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+        }
+        
+        DateTime now = rtc.now();
+        Serial.printf("Current RTC time: %02d:%02d:%02d\n", 
+                      now.hour(), now.minute(), now.second());
+    }
+
+    if (!LittleFS.begin(true)) {
+        Serial.println("LittleFS Mount Failed");
+        return;
+    }
+    Serial.println("LittleFS mounted");
+
+    initSettings();
+
+    alarms.clear();
+    loadAlarms();
+    
+    loadModeConfig();
     
     Serial.print("Wake reason: ");
     switch(wakeup_reason) {
@@ -933,60 +1049,39 @@ void setup() {
             break;
     }
     
-    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-
-    if (!rtc.begin(&Wire)) {
-        Serial.println("RTC not found!");
-    } else {
-        Serial.println("RTC initialized");
-        
-        // Clear any pending alarms
-        rtc.clearAlarm(1);
-        rtc.clearAlarm(2);
-        
-        // Only adjust time on first boot
-        if (wakeup_reason == ESP_SLEEP_WAKEUP_UNDEFINED) {
-            rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-        }
+    // If woken by RTC alarm (not button), trigger the event immediately
+    if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
+        Serial.println("\nRTC alarm wake - triggering scheduled event...");
         
         DateTime now = rtc.now();
-        Serial.printf("Current RTC time: %02d:%02d:%02d\n", 
-                      now.hour(), now.minute(), now.second());
-    }
-
-    if (!LittleFS.begin(true)) {
-        Serial.println("LittleFS Mount Failed");
-        return;
-    }
-    Serial.println("LittleFS mounted");
-
-    initSettings();
-    loadAlarms();
-    loadModeConfig();
-    
-    // If woken by RTC alarm (not button), trigger the event immediately
-    if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0 && digitalRead(BUTTON_PIN) == HIGH) {
-        Serial.println("\nTriggering scheduled event...");
+        uint32_t currentUnix = now.unixtime();
+        
         doSomething();
         
-        // Update last trigger time for regular intervals
-        if (modeConfig.activeMode == "regular_interval") {
-            modeConfig.regIntervalLastTrigger = millis();
-            saveModeConfig();
+        // Update trigger times based on mode
+        if (modeConfig.activeMode == "set_times") {
+            // No update needed - alarms are static times
+            Serial.println("Set times mode - no update needed");
         }
-        // Calculate new random time for random intervals
-        else if (modeConfig.activeMode == "random_interval") {
-            unsigned long intervalMs = (modeConfig.randIntervalHours * 3600UL + 
-                                        modeConfig.randIntervalMinutes * 60UL) * 1000UL;
-            unsigned long randomOffset = random(0, intervalMs);
-            modeConfig.randIntervalStartTime = millis();
-            modeConfig.randIntervalTriggerTime = millis() + randomOffset;
+        else if (modeConfig.activeMode == "regular_interval") {
+            // Update last trigger time to now
+            modeConfig.regIntervalLastTriggerUnix = currentUnix;
             saveModeConfig();
+            Serial.printf("Updated last trigger to: %lu\n", currentUnix);
+        }
+        else if (modeConfig.activeMode == "random_interval") {
+            // Calculate new random time for next interval
+            uint32_t intervalSeconds = (modeConfig.randIntervalHours * 3600UL + 
+                                        modeConfig.randIntervalMinutes * 60UL);
+            uint32_t randomOffset = random(0, intervalSeconds);
+            modeConfig.randIntervalNextTriggerUnix = currentUnix + randomOffset;
+            saveModeConfig();
+            Serial.printf("New random trigger in %lu seconds\n", randomOffset);
         }
         
         // Go back to sleep immediately after triggering
         configureNextWake();
-        delay(1000); // Give time for any serial output
+        delay(1000);
         enterDeepSleep();
     }
     
