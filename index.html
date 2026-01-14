@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Taronga Zoo Programmable Invertebrate Feeder</title>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Taronga Zoo Curlew Feeder</h1>
+            <p class="subtitle" style="margin-bottom: 1rem;">An automated, programmable feeder interface to feed one special bird called Uma</p>
+            <div class="current-time-display">
+                <h3 style="text-align: center; margin-bottom: 1rem;">
+                    Current System Time: <span id="current-time">--:--:--</span> <button id="sync-time-btn">Sync Time</button>
+                </h3>
+                <h3 style="text-align: center; margin-bottom: 0.5rem;">
+                    Battery: <span id="battery-status">Checking...</span>
+                </h3>
+            </div>
+            <div class="mode-display">
+                <h3 style="text-align: center; margin-bottom: 1rem;">
+                    Active Mode: <span id="active-mode">Checking...</span>
+                </h3>
+                <h3 style="text-align: center; margin-bottom: 0.5rem;">
+                    Next Activation Time: <span id="next-activation-time">--:--:--</span>
+                </h3>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="alarm">
+                Set Times
+            </button>
+            <button class="tab-btn" data-tab="reg-interval">
+                Regular Interval
+            </button>
+            <button class="tab-btn" data-tab="rand-interval">
+                Random Interval
+            </button>
+            <button class="tab-btn" data-tab="settings">
+                Settings
+            </button>
+        </div>
+
+        <div class="tab-content active" id="alarm">
+            <div class="clock-container">
+                <h2 style="text-align: center; margin-bottom: 1rem;">Set Dispensing Times</h2>
+                <form class="alarm-form" id="alarm-form">
+                    <input type="time" id="alarm-time" required>
+                    <button type="submit">Add Time</button>
+                </form>
+                
+                <h2 style="text-align: center; margin-bottom: 1rem;">Dispensing Times</h2>
+                <div class="alarms-list" id="alarms-list">
+                    <!-- Alarms will be added here dynamically -->
+                </div>
+
+                <div class="save-btn">
+                    <button id="set-times-save-btn">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-content" id="reg-interval">
+            <div class="clock-container">
+                <h2 style="text-align: center; margin-bottom: 1rem;">Set Regular Dispensing Interval</h2>
+
+                <div class="timer-input">
+                    <div class="timer-input-group">
+                        <label>Hours</label>
+                        <input type="number" id="reg-interval-hours" min="0" max="23" value="0">
+                    </div>
+                    <div class="timer-input-group">
+                        <label>Minutes</label>
+                        <input type="number" id="reg-interval-minutes" min="0" max="23" value="0">
+                    </div>
+                </div>
+
+                <div class="save-btn">
+                    <button id="reg-interval-save-btn">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-content" id="rand-interval">
+            <div class="clock-container">
+                <h2 style="text-align: center; margin-bottom: 1rem;">Set Random Dispensing Interval</h2>
+                <p style="margin-bottom: 2rem; text-align: center;">One dispensing activation will occur randomly within this interval</p>
+
+                <div class="timer-input">
+                    <div class="timer-input-group">
+                        <label>Hours</label>
+                        <input type="number" id="rand-interval-hours" min="0" max="23" value="0">
+                    </div>
+                    <div class="timer-input-group">
+                        <label>Minutes</label>
+                        <input type="number" id="rand-interval-minutes" min="0" max="23" value="0">
+                    </div>
+                </div>
+
+                <div class="save-btn">
+                    <button id="rand-interval-save-btn">Save</button>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="tab-content" id="settings">
+            <div class="clock-container">
+                <form class="settings-form" id="settings-form">
+                    <div class="form-group">
+                        <label for="time-format">Time Format</label>
+                        <select id="time-format">
+                            <option value="12">12-hour</option>
+                            <option value="24">24-hour</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="theme">Theme</label>
+                        <select id="theme">
+                            <option value="dark">Dark</option>
+                            <option value="light">Light</option>
+                            <option value="blue">Blue</option>
+                            <option value="green">Green</option>
+                        </select>
+                    </div>
+                    
+                    
+                    <button type="submit" class="settings-btn">Save Settings</button>
+                </form>
+            </div>
+
+            <div style="margin-top: 2rem; text-align: center;">
+                <button id="sleep-now-btn" style="background: #f44336; color: white; padding: 1rem 2rem; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer;">
+                    Enter Sleep Mode Now
+                </button>
+                <p style="margin-top: 0.5rem; opacity: 0.7; font-size: 0.9rem;">
+                    Device will wake at next scheduled time or button press
+                </p>
+            </div>
+
+        </div>
+    </div>
+
+    <div class="notification" id="notification">
+        <span id="notification-message">Notification message</span>
+        <button class="close-btn" id="notification-close">&times;</button>
+    </div>
+
+
+    <script src="./script.js"></script>
+</body>
+</html>
