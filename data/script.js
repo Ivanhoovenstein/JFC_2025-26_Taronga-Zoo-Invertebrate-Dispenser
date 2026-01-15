@@ -25,6 +25,9 @@ const randIntervalSaveBtn = document.getElementById('rand-interval-save-btn');
 const settingsForm = document.getElementById('settings-form');
 const timeFormatSelect = document.getElementById('time-format');
 const themeSelect = document.getElementById('theme');
+const wifiSSIDInput = document.getElementById('wifi-ssid');
+const wifiPasswordInput = document.getElementById('wifi-password');
+const wifiShowPasswordBtn = document.getElementById('wifi-show-password');
 
 // Notification Elements
 const notificationEl = document.getElementById('notification');
@@ -119,39 +122,6 @@ async function updateCurrentTime() {
     }
 }
 
-// async function updateCurrentTime() {
-//     try {
-//         const res = await fetch('/api/time');
-//         const data = await res.json();
-        
-//         if (data) {
-//             // Create Date object from RTC data (UTC)
-//             const utcDate = new Date(Date.UTC(
-//                 data.year || 2025,
-//                 (data.month || 1) - 1, 
-//                 data.day || 1,
-//                 data.hour,
-//                 data.minute,
-//                 data.second
-//             ));
-            
-//             // Display in AEST timezone
-//             const aestTime = utcDate.toLocaleString('en-AU', {
-//                 timeZone: 'Australia/Sydney',
-//                 hour12: settings.timeFormat === '12',
-//                 hour: '2-digit',
-//                 minute: '2-digit',
-//                 second: '2-digit'
-//             });
-            
-//             document.getElementById('current-time').textContent = aestTime;
-//         }
-//     } catch (error) {
-//         console.error('Error fetching time:', error);
-//         document.getElementById('current-time').textContent = 'Error';
-//     }
-// }
-
 function startTimeUpdates() {
     // Update immediately
     updateCurrentTime();
@@ -193,6 +163,48 @@ async function loadAlarms() {
 function applyTheme(theme) {
     document.body.className = '';
     document.body.classList.add(theme + '-theme');
+}
+
+// ----------------------
+// Load WiFi settings
+// ----------------------
+async function loadWiFiSettings() {
+    try {
+        const data = await apiGet("/api/wifi");
+        if (data) {
+            wifiSSIDInput.value = data.ssid || '';
+            wifiPasswordInput.value = data.password || '';
+        }
+    } catch (error) {
+        console.error('Error loading WiFi settings:', error);
+    }
+}
+
+// ----------------------
+// Save WiFi settings
+// ----------------------
+async function saveWiFiSettings(ssid, password) {
+    try {
+        const res = await fetch('/api/wifi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ssid, password })
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok) {
+            showNotification(data.message || 'WiFi settings saved. Changes will apply on next wake.');
+            return true;
+        } else {
+            showNotification(data.error || 'Failed to save WiFi settings');
+            return false;
+        }
+    } catch (error) {
+        console.error('Error saving WiFi settings:', error);
+        showNotification('Error saving WiFi settings');
+        return false;
+    }
 }
 
 // ----------------------
@@ -370,7 +382,38 @@ function setupEventListeners() {
         } else {
             showNotification('Failed to save settings');
         }
+
+        // Save WiFi settings
+        const wifiSSID = wifiSSIDInput.value.trim();
+        const wifiPassword = wifiPasswordInput.value;
+        
+        // Validate WiFi settings
+        if (wifiSSID.length === 0 || wifiSSID.length > 32) {
+            showNotification('SSID must be 1-32 characters');
+            return;
+        }
+        
+        if (wifiPassword.length < 8 || wifiPassword.length > 63) {
+            showNotification('Password must be 8-63 characters');
+            return;
+        }
+        
+        const wifiSaved = await saveWiFiSettings(wifiSSID, wifiPassword);
+        
+        if (res.ok && wifiSaved) {
+            showNotification('All settings saved successfully!');
+        }
+
     });
+
+    // WiFi show/hide password toggle
+    if (wifiShowPasswordBtn) {
+        wifiShowPasswordBtn.addEventListener('click', () => {
+            const type = wifiPasswordInput.type === 'password' ? 'text' : 'password';
+            wifiPasswordInput.type = type;
+            wifiShowPasswordBtn.textContent = type === 'password' ? 'Show' : 'Hide';
+        });
+    }
     
     // Notification close button
     notificationCloseBtn.addEventListener('click', () => {
@@ -527,6 +570,9 @@ async function init() {
     
     // Load settings first
     await loadSettings();
+
+    // Load WiFi Config
+    await loadWiFiSettings();
     
     // Set up tabs
     setupTabs();

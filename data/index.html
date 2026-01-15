@@ -111,28 +111,72 @@
         <div class="tab-content" id="settings">
             <div class="clock-container">
 
+                <button class="sync-time-btn" id="sync-time-btn">Sync Time</button>
+
                 <form class="settings-form" id="settings-form">
+                    <div class="wifi-settings-section">
 
-                    <button class="sync-time-btn" id="sync-time-btn">Sync Time</button>
+                        <h3>WiFi Access Point</h3>
+                        <p class="settings-note">Configure the WiFi network name and 
+                            password. Changes will apply on next wake/restart.</p>
 
-                    <div class="form-group">
-                        <label for="time-format">Time Format</label>
-                        <select id="time-format">
-                            <option value="12">12-hour</option>
-                            <option value="24">24-hour</option>
-                        </select>
+                        <div class="form-group">
+                            <label for="wifi-ssid">Network Name (SSID)</label>
+                            <input 
+                                type="text" 
+                                id="wifi-ssid" 
+                                name="wifi-ssid" 
+                                placeholder="Enter network name"
+                                minlength="1"
+                                maxlength="32"
+                                required
+                            >
+                            <small>1-32 characters</small>
+                        </div>
+    
+                        <div class="form-group">
+                            <label for="wifi-password">Password</label>
+                            <div class="password-input-group">
+                                <input 
+                                    type="password" 
+                                    id="wifi-password" 
+                                    name="wifi-password" 
+                                    placeholder="Enter password"
+                                    minlength="8"
+                                    maxlength="63"
+                                    required
+                                >
+                                <button type="button" id="wifi-show-password" class="show-password-btn">Show</button>
+                            </div>
+                            <small>8-63 characters</small>
+                        </div>
                     </div>
+
+                    <!-- Divider -->
+                    <hr class="settings-divider">
                     
-                    <div class="form-group">
-                        <label for="theme">Theme</label>
-                        <select id="theme">
-                            <option value="dark">Dark</option>
-                            <option value="light">Light</option>
-                            <option value="blue">Blue</option>
-                            <option value="green">Green</option>
-                        </select>
+                    <div class="display-settings-section">
+
+                        <h3>Display</h3>
+                        
+                        <div class="form-group">
+                            <label for="time-format">Time Format</label>
+                            <select id="time-format">
+                                <option value="12">12-hour</option>
+                                <option value="24">24-hour</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="theme">Theme</label>
+                            <select id="theme">
+                                <option value="dark">Dark</option>
+                                <option value="light">Light</option>
+                                <option value="blue">Blue</option>
+                                <option value="green">Green</option>
+                            </select>
+                        </div>
                     </div>
-                    
                     
                     <button type="submit" class="settings-btn">Save Settings</button>
                 </form>

@@ -24,8 +24,8 @@ WebServer server(80);
 DNSServer dnsServer;
 
 const byte DNS_PORT = 53;
-const char* AP_SSID = "Taronga Zoo Curlew Feeder";
-const char* AP_PASS = "12345678";  // change this!
+String currentSSID = "Taronga Zoo Curlew Feeder";
+String currentPassword = "12345678";  // change this!
 
 struct Alarm {
     uint32_t id;
@@ -265,6 +265,78 @@ String alarmsToJson() {
 }
 
 // ----------------------------------------
+// Load WiFi settings from LittleFS
+// ----------------------------------------
+void loadWiFiSettings() {
+    if (!LittleFS.exists("/wifi.json")) {
+        Serial.println("wifi.json not found, creating default");
+        File f = LittleFS.open("/wifi.json", "w");
+        if (f) {
+            f.print("{\"ssid\":\"Taronga Zoo Curlew Feeder\",\"password\":\"12345678\"}");
+            f.close();
+        }
+        return;
+    }
+    
+    File f = LittleFS.open("/wifi.json", "r");
+    if (!f) {
+        Serial.println("Failed to open wifi.json");
+        return;
+    }
+    
+    String json = f.readString();
+    f.close();
+    
+    DynamicJsonDocument doc(256);
+    DeserializationError err = deserializeJson(doc, json);
+    if (err) {
+        Serial.print("Error parsing wifi.json: ");
+        Serial.println(err.c_str());
+        return;
+    }
+    
+    currentSSID = doc["ssid"].as<String>();
+    currentPassword = doc["password"].as<String>();
+    
+    // Validate SSID and password
+    if (currentSSID.length() == 0 || currentSSID.length() > 32) {
+        Serial.println("Invalid SSID length, using default");
+        currentSSID = "Taronga Zoo Curlew Feeder";
+    }
+    
+    if (currentPassword.length() < 8 || currentPassword.length() > 63) {
+        Serial.println("Invalid password length, using default");
+        currentPassword = "12345678";
+    }
+    
+    Serial.println("Loaded WiFi settings:");
+    Serial.println("  SSID: " + currentSSID);
+    Serial.println("  Password: " + String(currentPassword.length()) + " characters");
+}
+
+// ----------------------------------------
+// Save WiFi settings to LittleFS
+// ----------------------------------------
+void saveWiFiSettings(String ssid, String password) {
+    File f = LittleFS.open("/wifi.json", "w");
+    if (!f) {
+        Serial.println("Failed to open wifi.json for writing");
+        return;
+    }
+    
+    DynamicJsonDocument doc(256);
+    doc["ssid"] = ssid;
+    doc["password"] = password;
+    
+    String jsonStr;
+    serializeJson(doc, jsonStr);
+    f.print(jsonStr);
+    f.close();
+    
+    Serial.println("Saved WiFi settings: " + jsonStr);
+}
+
+// ----------------------------------------
 // Save mode configuration to LittleFS
 // ----------------------------------------
 void saveModeConfig() {
@@ -442,8 +514,10 @@ void initSettings() {
     }
 }
 
+// ------------------------ @todo: organise this! split into separate related functions (i.e. registerRoutesWiFi, registerRoutesMode, etc.) ------------------------
+
 // ----------------------------------------
-// Register all HTTP routes
+// Register all HTTP routes 
 // ----------------------------------------
 void registerRoutes() {
 
@@ -765,6 +839,75 @@ void registerRoutes() {
         server.send(200, "text/plain", "");
     });
 
+    // GET WiFi settings
+    server.on("/api/wifi", HTTP_GET, []() {
+        setCORSHeaders();
+        Serial.println("GET /api/wifi");
+        
+        DynamicJsonDocument doc(256);
+        doc["ssid"] = currentSSID;
+        doc["password"] = currentPassword;
+        
+        String json;
+        serializeJson(doc, json);
+        server.send(200, "application/json", json);
+    });
+
+    server.on("/api/wifi", HTTP_OPTIONS, []() {
+        setCORSHeaders();
+        server.send(200, "text/plain", "");
+    });
+
+    // POST update WiFi settings
+    server.on("/api/wifi", HTTP_POST, []() {
+        setCORSHeaders();
+        
+        String body = server.arg("plain");
+        Serial.println("POST /api/wifi body: " + body);
+        
+        DynamicJsonDocument doc(256);
+        DeserializationError err = deserializeJson(doc, body);
+        
+        if (err) {
+            Serial.print("Error parsing WiFi settings: ");
+            Serial.println(err.c_str());
+            server.send(400, "text/plain", "Invalid JSON");
+            return;
+        }
+        
+        String newSSID = doc["ssid"].as<String>();
+        String newPassword = doc["password"].as<String>();
+        
+        // Validate SSID
+        if (newSSID.length() == 0 || newSSID.length() > 32) {
+            server.send(400, "application/json", 
+                "{\"error\":\"SSID must be 1-32 characters\"}");
+            return;
+        }
+        
+        // Validate password
+        if (newPassword.length() < 8 || newPassword.length() > 63) {
+            server.send(400, "application/json", 
+                "{\"error\":\"Password must be 8-63 characters\"}");
+            return;
+        }
+        
+        // Save to file
+        saveWiFiSettings(newSSID, newPassword);
+        
+        // Update current settings
+        currentSSID = newSSID;
+        currentPassword = newPassword;
+        
+        Serial.println("WiFi settings updated successfully");
+        Serial.println("  New SSID: " + currentSSID);
+        Serial.println("  Password length: " + String(currentPassword.length()));
+        
+        // Send success response with info about restart requirement
+        server.send(200, "application/json", 
+            "{\"status\":\"ok\",\"message\":\"Settings saved. Changes will apply on next wake/restart.\"}");
+    });
+
 
     // 404 fallback (important for captive portal)
     server.onNotFound([]() {
@@ -846,12 +989,13 @@ void registerRoutes() {
 // Captive Portal setup
 // ----------------------------------------
 void setupCaptivePortal() {
-    WiFi.softAP(AP_SSID, AP_PASS);
+    // Use the loaded SSID and password
+    WiFi.softAP(currentSSID.c_str(), currentPassword.c_str());
 
     dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
 
     Serial.print("AP running. Connect to: ");
-    Serial.println(AP_SSID);
+    Serial.println(currentSSID.c_str());
     Serial.print("IP: ");
     Serial.println(WiFi.softAPIP());
 }
@@ -1012,6 +1156,8 @@ void setup() {
         return;
     }
     Serial.println("LittleFS mounted");
+
+    loadWiFiSettings();
 
     initSettings();
 
