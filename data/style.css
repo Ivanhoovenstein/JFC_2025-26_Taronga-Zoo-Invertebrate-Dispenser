@@ -37,6 +37,10 @@ header {
     margin-bottom: 2rem;
 }
 
+p {
+    padding: 2rem;
+}
+
 h1 {
     font-size: 2.5rem;
     margin-bottom: 0.5rem;
@@ -529,7 +533,11 @@ h1 {
     font-size: 1rem;
     transition: all 0.3s ease;
     width: 100%;
+    margin: 0 auto;
     margin-bottom: 1.5rem;
+    max-width: 500px;
+    display: block;
+    align-items: center;
 }
 
 .sync-time-btn:hover {
@@ -540,7 +548,7 @@ h1 {
     margin-bottom: 24px;
 }
 
-.wifi-settings-section h3 {
+.settings-form h3 {
     margin-bottom: 8px;
     font-size: 18px;
     font-weight: 600;
@@ -591,4 +599,79 @@ h1 {
 
 .show-password-btn:hover {
     background: var(--secondary-color);
+}
+
+.dashboard-container {
+    display: flex;
+    width: 95%;
+    margin: 0 auto;
+    gap: 0.7rem;
+    min-height: 240px;
+    justify-content: center;
+}
+
+.active-mode-container {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    border-radius: 20px;
+    padding: 2rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    font-size: 0.9rem;
+}
+
+.active-mode-container h3 {
+    text-align: left;
+    margin-bottom: 2rem;
+    font-size: 1.1rem;
+}
+
+.next-activation-time h3 {
+    margin-bottom: 1.5rem;
+}
+
+.next-activation-time .clock {
+    font-size: 1.5rem;
+}
+
+.system-status-container {
+    /* flex-grow: 1; */
+    min-height: 240px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.7rem;
+}
+
+.system-time-display {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    border-radius: 20px;
+    padding: 2rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    /* flex-grow: 1; */
+}
+
+.system-time-display h3 {
+    text-align: left;
+    margin-bottom: 1rem;
+    font-size: 0.8rem;
+}
+
+.system-time-display .clock {
+    font-size: 1.5rem;
+}
+
+.battery-display {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    border-radius: 20px;
+    padding: 2rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    flex-grow: 1;
+}
+
+.battery-display h3 {
+    text-align: left;
+    margin-bottom: 1rem;
+    font-size: 0.8rem;
 }

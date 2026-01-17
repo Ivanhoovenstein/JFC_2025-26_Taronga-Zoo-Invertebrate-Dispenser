@@ -10,24 +10,39 @@
     <div class="container">
         <header>
             <h1>Taronga Zoo Curlew Feeder</h1>
-            <p class="subtitle" style="margin-bottom: 1rem;">An automated, programmable feeder interface to feed one special bird called Uma</p>
-            <div class="current-time-display">
-                <h3 style="text-align: center; margin-bottom: 1rem;">
-                    Current System Time: <span id="current-time">--:--:--</span> 
-                    <!-- <button id="sync-time-btn">Sync Time</button> -->
-                </h3>
-                <h3 style="text-align: center; margin-bottom: 0.5rem;">
-                    Battery: <span id="battery-status">Checking...</span>
-                </h3>
+            <p class="subtitle" style="margin-bottom: 1rem;">A programmable feeder interface to feed one special bird called Uma</p>
+
+            <div class="dashboard-container">
+
+                <div class="active-mode-container">
+                    <div class="active-mode" style="margin-bottom: 1rem;">
+                        <h3>Active Mode</h3>
+                        <span class="active-mode-label" id="active-mode">Checking...</span>
+                    </div>
+
+                    <div class="next-activation-time">
+                        <h3>Next Activation Time</h3>
+                        <span class="clock" id="next-activation-time">--:--:--</span>
+                    </div>
+                </div>
+
+                <div class="system-status-container">
+
+                    <div class="system-time-display">
+                        <h3>System Time</h3>
+                        <span class="clock" id="current-time">--:--:--</span>
+                    </div>
+
+                    <div class="battery-display">
+                        <h3>Battery</h3>
+                        <span id="battery-status">Checking...</span>
+                    </div>
+
+                </div>
+
             </div>
-            <div class="mode-display">
-                <h3 style="text-align: center; margin-bottom: 1rem;">
-                    Active Mode: <span id="active-mode">Checking...</span>
-                </h3>
-                <h3 style="text-align: center; margin-bottom: 0.5rem;">
-                    Next Activation Time: <span id="next-activation-time">--:--:--</span>
-                </h3>
-            </div>
+
+
         </header>
 
         <div class="tabs">
@@ -39,6 +54,9 @@
             </button>
             <button class="tab-btn" data-tab="rand-interval">
                 Random Interval
+            </button>
+            <button class="tab-btn" data-tab="history">
+                History
             </button>
             <button class="tab-btn" data-tab="settings">
                 Settings
@@ -108,10 +126,23 @@
             </div>
         </div>
 
+        <div class="tab-content" id="history">
+            <div class="clock-container">
+                <h3>
+                    Device Event History (Past 24 Hours)
+                </h3>
+
+                <div class="history-list" id="history-list">
+                    <!-- Events will be added here dynamically -->
+                </div>
+
+            </div>
+        </div>
+
         <div class="tab-content" id="settings">
             <div class="clock-container">
 
-                <button class="sync-time-btn" id="sync-time-btn">Sync Time</button>
+                <button class="sync-time-btn" id="sync-time-btn">Sync System Time</button>
 
                 <form class="settings-form" id="settings-form">
                     <div class="wifi-settings-section">
@@ -127,11 +158,11 @@
                                 id="wifi-ssid" 
                                 name="wifi-ssid" 
                                 placeholder="Enter network name"
-                                minlength="1"
+                                minlength="8"
                                 maxlength="32"
                                 required
                             >
-                            <small>1-32 characters</small>
+                            <small>8-32 characters</small>
                         </div>
     
                         <div class="form-group">

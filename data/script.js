@@ -388,8 +388,8 @@ function setupEventListeners() {
         const wifiPassword = wifiPasswordInput.value;
         
         // Validate WiFi settings
-        if (wifiSSID.length === 0 || wifiSSID.length > 32) {
-            showNotification('SSID must be 1-32 characters');
+        if (wifiSSID.length < 8 || wifiSSID.length > 32) {
+            showNotification('SSID must be 8-32 characters');
             return;
         }
         
@@ -420,8 +420,10 @@ function setupEventListeners() {
         hideNotification();
     });
 
+    // Sync System Time button
     syncTimeBtn.addEventListener('click', syncTime);
 
+    // Save active mode buttons
     setTimeSaveBtn.addEventListener('click', setModeToSetTimes);
     regIntervalSaveBtn.addEventListener('click', setModeToRegInterval);
     randIntervalSaveBtn.addEventListener('click', setModeToRandInterval);

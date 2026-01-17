@@ -6,7 +6,7 @@
 #include <Wire.h>
 #include <RTClib.h>
 #include <algorithm>
-#include <esp_sleep.h>  // Add this for deep sleep functions
+#include <esp_sleep.h>
 
 #define I2C_SDA_PIN 33
 #define I2C_SCL_PIN 32
