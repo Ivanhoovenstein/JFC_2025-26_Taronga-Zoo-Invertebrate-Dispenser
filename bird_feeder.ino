@@ -7,11 +7,23 @@
 #include <RTClib.h>
 #include <algorithm>
 #include <esp_sleep.h>
+#include <ESP32Servo.h>
 
 #define I2C_SDA_PIN 33
 #define I2C_SCL_PIN 32
 #define RTC_ALARM_PIN 25    // DS3231 SQW pin connected 
 #define BUTTON_PIN 34       // Button for manual wake (pull-up)
+#define LED_PIN 27
+
+// Servo global variables
+Servo myServo;
+
+const int servoPin = 26;
+int minPulse = 500;
+int maxPulse = 2500;
+const float MECH_RANGE = 360;
+int compartment = 0;
+int maxCompartment = 6; // This is our design for now.
 
 // AP timeout settings
 #define AP_TIMEOUT_MS 900000UL  // 15 minutes in milliseconds
@@ -47,9 +59,20 @@ struct ModeConfig {
     uint32_t randIntervalNextTriggerUnix; // Unix timestamp (AEST) when to trigger
 };
 
+// Event logging structure
+struct EventLog {
+    uint32_t timestamp;      // Unix timestamp (AEST)
+    String type;            // "SUCCESS" or "ERROR"
+    String mode;            // "set_times", "regular_interval", "random_interval"
+    String message;         // Description of event
+};
+
+std::vector<EventLog> eventHistory;
+std::vector<Alarm> alarms;
 ModeConfig modeConfig;
 
-std::vector<Alarm> alarms;
+const int MAX_EVENTS_IN_MEMORY = 100;  // Keep last 100 events in memory
+const uint32_t EVENT_RETENTION_SECONDS = 86400;  // 24 hours
 
 
 // ----------------------------------------
@@ -234,8 +257,6 @@ bool shouldEnterSleep() {
 }
 
 
-
-
 // ----------------------------------------
 // Add CORS headers to all responses
 // ----------------------------------------
@@ -334,6 +355,173 @@ void saveWiFiSettings(String ssid, String password) {
     f.close();
     
     Serial.println("Saved WiFi settings: " + jsonStr);
+}
+
+// ----------------------------------------
+// Add event to log
+// ----------------------------------------
+void logEvent(String type, String mode, String message) {
+    DateTime now = rtc.now();
+    uint32_t currentUnix = now.unixtime();
+    
+    EventLog event;
+    event.timestamp = currentUnix;
+    event.type = type;
+    event.mode = mode;
+    event.message = message;
+    
+    // Add to in-memory history
+    eventHistory.push_back(event);
+    
+    // Keep only recent events in memory
+    if (eventHistory.size() > MAX_EVENTS_IN_MEMORY) {
+        eventHistory.erase(eventHistory.begin());
+    }
+    
+    // Save to file
+    saveEventToFile(event);
+    
+    // Format and print to serial
+    char timeStr[20];
+    snprintf(timeStr, sizeof(timeStr), "%04d-%02d-%02d %02d:%02d:%02d",
+             now.year(), now.month(), now.day(),
+             now.hour(), now.minute(), now.second());
+    
+    Serial.printf("[%s] [%s] [%s] %s\n", 
+                 timeStr, type.c_str(), mode.c_str(), message.c_str());
+}
+
+// ----------------------------------------
+// Save single event to file (append mode)
+// ----------------------------------------
+void saveEventToFile(const EventLog &event) {
+    File f = LittleFS.open("/events.log", "a");  // Append mode
+    if (!f) {
+        Serial.println("Failed to open events.log for writing");
+        return;
+    }
+    
+    // Write in CSV format: timestamp,type,mode,message
+    f.printf("%lu,%s,%s,%s\n", 
+             event.timestamp, 
+             event.type.c_str(), 
+             event.mode.c_str(), 
+             event.message.c_str());
+    
+    f.close();
+}
+
+// ----------------------------------------
+// Load events from file (last 24 hours only)
+// ----------------------------------------
+void loadEventsFromFile() {
+    eventHistory.clear();
+    
+    if (!LittleFS.exists("/events.log")) {
+        Serial.println("events.log not found");
+        return;
+    }
+    
+    File f = LittleFS.open("/events.log", "r");
+    if (!f) {
+        Serial.println("Failed to open events.log for reading");
+        return;
+    }
+    
+    DateTime now = rtc.now();
+    uint32_t currentUnix = now.unixtime();
+    uint32_t cutoffTime = currentUnix - EVENT_RETENTION_SECONDS;
+    
+    std::vector<EventLog> tempEvents;
+    
+    // Read all events
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        
+        if (line.length() == 0) continue;
+        
+        // Parse CSV: timestamp,type,mode,message
+        int firstComma = line.indexOf(',');
+        int secondComma = line.indexOf(',', firstComma + 1);
+        int thirdComma = line.indexOf(',', secondComma + 1);
+        
+        if (firstComma == -1 || secondComma == -1 || thirdComma == -1) {
+            Serial.println("Malformed log line: " + line);
+            continue;
+        }
+        
+        EventLog event;
+        event.timestamp = line.substring(0, firstComma).toInt();
+        event.type = line.substring(firstComma + 1, secondComma);
+        event.mode = line.substring(secondComma + 1, thirdComma);
+        event.message = line.substring(thirdComma + 1);
+        
+        // Only keep events from last 24 hours
+        if (event.timestamp >= cutoffTime) {
+            tempEvents.push_back(event);
+        }
+    }
+    
+    f.close();
+    
+    // Rewrite file with only recent events (cleanup old ones)
+    f = LittleFS.open("/events.log", "w");
+    if (f) {
+        for (const auto &event : tempEvents) {
+            f.printf("%lu,%s,%s,%s\n", 
+                     event.timestamp, 
+                     event.type.c_str(), 
+                     event.mode.c_str(), 
+                     event.message.c_str());
+            
+            // Also load into memory (keep last MAX_EVENTS_IN_MEMORY)
+            if (eventHistory.size() < MAX_EVENTS_IN_MEMORY) {
+                eventHistory.push_back(event);
+            }
+        }
+        f.close();
+    }
+    
+    Serial.printf("Loaded %d events from log file\n", eventHistory.size());
+}
+
+// ----------------------------------------
+// Convert events to JSON (last 24 hours)
+// ----------------------------------------
+String eventsToJson() {
+    DateTime now = rtc.now();
+    uint32_t currentUnix = now.unixtime();
+    uint32_t cutoffTime = currentUnix - EVENT_RETENTION_SECONDS;
+    
+    DynamicJsonDocument doc(8192);  // Larger buffer for events
+    JsonArray arr = doc.to<JsonArray>();
+    
+    // Add events from newest to oldest (reverse order)
+    for (int i = eventHistory.size() - 1; i >= 0; i--) {
+        const EventLog &event = eventHistory[i];
+        
+        // Only include events from last 24 hours
+        if (event.timestamp >= cutoffTime) {
+            JsonObject o = arr.createNestedObject();
+            o["timestamp"] = event.timestamp;
+            o["type"] = event.type;
+            o["mode"] = event.mode;
+            o["message"] = event.message;
+            
+            // Format human-readable time
+            DateTime dt(event.timestamp);
+            char timeStr[20];
+            snprintf(timeStr, sizeof(timeStr), "%04d-%02d-%02d %02d:%02d:%02d",
+                     dt.year(), dt.month(), dt.day(),
+                     dt.hour(), dt.minute(), dt.second());
+            o["timeStr"] = timeStr;
+        }
+    }
+    
+    String out;
+    serializeJson(arr, out);
+    return out;
 }
 
 // ----------------------------------------
@@ -520,6 +708,67 @@ void initSettings() {
 // Register all HTTP routes 
 // ----------------------------------------
 void registerRoutes() {
+
+    // GET event history
+    server.on("/api/events", HTTP_GET, []() {
+        setCORSHeaders();
+        
+        // Reload events from file to ensure we have latest
+        loadEventsFromFile();
+        
+        String json = eventsToJson();
+        Serial.println("GET /api/events -> " + String(eventHistory.size()) + " events");
+        server.send(200, "application/json", json);
+    });
+
+    server.on("/api/events", HTTP_OPTIONS, []() {
+        setCORSHeaders();
+        server.send(200, "text/plain", "");
+    });
+    
+    // DELETE all events (clear history)
+    server.on("/api/events", HTTP_DELETE, []() {
+        setCORSHeaders();
+        
+        eventHistory.clear();
+        
+        // Clear the log file
+        LittleFS.remove("/events.log");
+        
+        Serial.println("Event history cleared");
+        server.send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+    
+    // GET event statistics
+    server.on("/api/events/stats", HTTP_GET, []() {
+        setCORSHeaders();
+        
+        int successCount = 0;
+        int errorCount = 0;
+        
+        for (const auto &event : eventHistory) {
+            if (event.type == "SUCCESS") {
+                successCount++;
+            } else if (event.type == "ERROR") {
+                errorCount++;
+            }
+        }
+        
+        DynamicJsonDocument doc(256);
+        doc["totalEvents"] = eventHistory.size();
+        doc["successCount"] = successCount;
+        doc["errorCount"] = errorCount;
+        doc["retentionHours"] = EVENT_RETENTION_SECONDS / 3600;
+        
+        String json;
+        serializeJson(doc, json);
+        server.send(200, "application/json", json);
+    });
+
+    server.on("/api/events/stats", HTTP_OPTIONS, []() {
+        setCORSHeaders();
+        server.send(200, "text/plain", "");
+    });
 
     // Handle OPTIONS requests for CORS
     server.on("/api/alarms/", HTTP_OPTIONS, []() {
@@ -792,6 +1041,9 @@ void registerRoutes() {
         server.stop();
         WiFi.softAPdisconnect(true);
         WiFi.mode(WIFI_OFF);
+
+        // AP Mode off -> Turn LED OFF
+        digitalWrite(LED_PIN, LOW);
         
         delay(100);
         configureNextWake();
@@ -1110,8 +1362,60 @@ void doSomething() {
     // activateRelay();
     // sendNotification();
     // logEvent();
+
+    advanceCompartment();
+
+    bool success = true;
+    String errorMessage = "";
+    
+    // Example error checking: TODO -> ADD MORE ERROR CHECKING!
+    
+    // Check if RTC is still working
+    if (!rtc.begin(&Wire)) {
+        success = false;
+        errorMessage = "RTC communication error - clock may have lost power";
+        Serial.println("ERROR: " + errorMessage);
+    }
+
+    if (success) {
+        logEvent("SUCCESS", modeConfig.activeMode, "Activation completed successfully");
+    } else {
+        logEvent("ERROR", modeConfig.activeMode, errorMessage);
+    }
     
     Serial.println("========================================");
+}
+
+// ----------------------------------------
+// Servo angle position function
+// ----------------------------------------
+void moveToAngle(int angle) {
+  //angle = constrain(angle, 0, 360);
+
+  float mechAngle = angle * (MECH_RANGE / 360.0);
+  int pulse = map(mechAngle, 0, MECH_RANGE, minPulse, maxPulse);
+
+  myServo.writeMicroseconds(pulse);
+
+//   Serial.print("Angle: ");
+//   Serial.print(angle);
+//   Serial.print("  Pulse: ");
+//   Serial.println(pulse);
+}
+
+void advanceCompartment() {
+    // Advance compartment index
+  compartment++;
+
+  // Move to current compartment
+  int angle = compartment * 60;
+  moveToAngle(angle);
+
+  if (compartment == (maxCompartment - 1)) {
+    delay(1000);          // allow last item to drop
+    compartment = 0;
+    moveToAngle(0);      // return to deadspace
+  }
 }
 
 // ----------------------------------------
@@ -1126,6 +1430,10 @@ void setup() {
     // Configure pins
     pinMode(RTC_ALARM_PIN, INPUT_PULLUP);
     pinMode(BUTTON_PIN, INPUT);
+    pinMode(LED_PIN, OUTPUT);
+
+    myServo.attach(servoPin); // Attach the servo to the pin
+    myServo.setPeriodHertz(50);
     
     // Check wake reason
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
@@ -1165,6 +1473,12 @@ void setup() {
     loadAlarms();
     
     loadModeConfig();
+
+    // Load event history
+    loadEventsFromFile();
+    
+    // Log startup event
+    logEvent("SUCCESS", "system", "System started/woke from sleep");
     
     Serial.print("Wake reason: ");
     switch(wakeup_reason) {
@@ -1180,6 +1494,14 @@ void setup() {
         case ESP_SLEEP_WAKEUP_EXT1:
                 // Serial.println("WAKEUP_EXT1");
             Serial.println("Button wake detected - starting AP mode");
+
+            delay(500);
+            if (digitalRead(BUTTON_PIN) == 0) {
+                configureNextWake();
+                enterDeepSleep();
+                // break;
+            }
+
             apModeActive = true;
             apStartTime = millis();
             break;
@@ -1236,6 +1558,10 @@ void setup() {
         setupCaptivePortal();
         registerRoutes();
         server.begin();
+
+        // Web Server on -> Turn LED ON
+        digitalWrite(LED_PIN, HIGH);
+
         Serial.println("Web server started.");
         Serial.printf("AP mode will timeout in %lu minutes\n", AP_TIMEOUT_MS / 60000);
     }
@@ -1261,6 +1587,9 @@ void loop() {
             server.stop();
             WiFi.softAPdisconnect(true);
             WiFi.mode(WIFI_OFF);
+
+            // AP Mode off -> Turn LED OFF
+            digitalWrite(LED_PIN, LOW);
             
             delay(100);
             

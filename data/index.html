@@ -55,16 +55,10 @@
             <button class="tab-btn" data-tab="rand-interval">
                 Random Interval
             </button>
-            <button class="tab-btn" data-tab="history">
-                History
-            </button>
-            <button class="tab-btn" data-tab="settings">
-                Settings
-            </button>
         </div>
 
         <div class="tab-content active" id="alarm">
-            <div class="clock-container">
+            <div class="page-container">
                 <h2 style="text-align: center; margin-bottom: 1rem;">Set Dispensing Times</h2>
                 <form class="alarm-form" id="alarm-form">
                     <input type="time" id="alarm-time" required>
@@ -83,15 +77,15 @@
         </div>
 
         <div class="tab-content" id="reg-interval">
-            <div class="clock-container">
+            <div class="page-container">
                 <h2 style="text-align: center; margin-bottom: 1rem;">Set Regular Dispensing Interval</h2>
 
-                <div class="timer-input">
-                    <div class="timer-input-group">
+                <div class="interval-input">
+                    <div class="interval-input-group">
                         <label>Hours</label>
                         <input type="number" id="reg-interval-hours" min="0" max="23" value="0">
                     </div>
-                    <div class="timer-input-group">
+                    <div class="interval-input-group">
                         <label>Minutes</label>
                         <input type="number" id="reg-interval-minutes" min="0" max="23" value="0">
                     </div>
@@ -104,16 +98,16 @@
         </div>
 
         <div class="tab-content" id="rand-interval">
-            <div class="clock-container">
+            <div class="page-container">
                 <h2 style="text-align: center; margin-bottom: 1rem;">Set Random Dispensing Interval</h2>
                 <p style="margin-bottom: 2rem; text-align: center;">One dispensing activation will occur randomly within this interval</p>
 
-                <div class="timer-input">
-                    <div class="timer-input-group">
+                <div class="interval-input">
+                    <div class="interval-input-group">
                         <label>Hours</label>
                         <input type="number" id="rand-interval-hours" min="0" max="23" value="0">
                     </div>
-                    <div class="timer-input-group">
+                    <div class="interval-input-group">
                         <label>Minutes</label>
                         <input type="number" id="rand-interval-minutes" min="0" max="23" value="0">
                     </div>
@@ -127,20 +121,36 @@
         </div>
 
         <div class="tab-content" id="history">
-            <div class="clock-container">
-                <h3>
-                    Device Event History (Past 24 Hours)
-                </h3>
-
+            <div class="page-container">
+                <h2 style="text-align: center; margin-bottom: 1rem;">Event History</h2>
+                <p style="text-align: center; opacity: 0.7; margin-bottom: 2rem;">
+                    Events from the past 24 hours
+                </p>
+                
+                <!-- Event Statistics -->
+                <div id="event-stats" class="event-stats">
+                    <!-- Stats will be populated by JavaScript -->
+                </div>
+                
+                <!-- Action Buttons -->
+                <div class="history-actions">
+                    <button id="refresh-history-btn" class="btn-secondary">
+                        Refresh
+                    </button>
+                    <button id="clear-history-btn" class="btn-danger">
+                        Clear History
+                    </button>
+                </div>
+                
+                <!-- Event List -->
                 <div class="history-list" id="history-list">
                     <!-- Events will be added here dynamically -->
                 </div>
-
             </div>
         </div>
 
         <div class="tab-content" id="settings">
-            <div class="clock-container">
+            <div class="page-container">
 
                 <button class="sync-time-btn" id="sync-time-btn">Sync System Time</button>
 
@@ -201,10 +211,8 @@
                         <div class="form-group">
                             <label for="theme">Theme</label>
                             <select id="theme">
-                                <option value="dark">Dark</option>
                                 <option value="light">Light</option>
-                                <option value="blue">Blue</option>
-                                <option value="green">Green</option>
+                                <option value="dark">Dark</option>
                             </select>
                         </div>
                     </div>
@@ -222,6 +230,15 @@
                 </p>
             </div>
 
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn" data-tab="history">
+                History
+            </button>
+            <button class="tab-btn" data-tab="settings">
+                Settings
+            </button>
         </div>
     </div>
 

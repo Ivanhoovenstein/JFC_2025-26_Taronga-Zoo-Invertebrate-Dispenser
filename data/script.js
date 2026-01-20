@@ -34,6 +34,14 @@ const notificationEl = document.getElementById('notification');
 const notificationMessageEl = document.getElementById('notification-message');
 const notificationCloseBtn = document.getElementById('notification-close');
 
+// History Elements
+const historyListEl = document.getElementById('history-list');
+const clearHistoryBtn = document.getElementById('clear-history-btn');
+const refreshHistoryBtn = document.getElementById('refresh-history-btn');
+
+let eventHistory = [];
+let eventStats = null;
+
 let alarms = [];
 let settings = { timeFormat: '24', theme: 'light' };
 let timeUpdateInterval = null;
@@ -42,7 +50,7 @@ let timeUpdateInterval = null;
 const MODES = Object.freeze({
     SET_TIMES: 'set_times',
     REGULAR_INTERVAL: 'regular_interval',
-    RANDOM_INTERVAL: 'random_inteval'
+    RANDOM_INTERVAL: 'random_interval'
 })
 
 // ----------------------
@@ -143,6 +151,41 @@ async function loadSettings() {
         timeFormatSelect.value = settings.timeFormat || '24';
         themeSelect.value = settings.theme || 'light';
         applyTheme(settings.theme || 'light');
+
+        if (settings.theme.length == 0) {
+            settings.theme = 'light';
+        }
+    }
+}
+
+// ----------------------
+// Load event history
+// ----------------------
+async function loadEventHistory() {
+    try {
+        const data = await apiGet('/api/events');
+        if (data) {
+            eventHistory = data;
+            renderEventHistory();
+        }
+    } catch (error) {
+        console.error('Error loading event history:', error);
+        showNotification('Failed to load event history');
+    }
+}
+
+// ----------------------
+// Load event statistics
+// ----------------------
+async function loadEventStats() {
+    try {
+        const data = await apiGet('/api/events/stats');
+        if (data) {
+            eventStats = data;
+            updateStatsDisplay();
+        }
+    } catch (error) {
+        console.error('Error loading event stats:', error);
     }
 }
 
@@ -222,8 +265,106 @@ function setupTabs() {
             // Add active class to clicked button and corresponding content
             btn.classList.add('active');
             document.getElementById(tabId).classList.add('active');
+
+            
         });
     });
+}
+
+// ----------------------
+// Update statistics display
+// ----------------------
+function updateStatsDisplay() {
+    if (!eventStats) return;
+    
+    const statsEl = document.getElementById('event-stats');
+    if (statsEl) {
+        statsEl.innerHTML = `
+            <div class="stat-item">
+                <span class="stat-label">Total Events:</span>
+                <span class="stat-value">${eventStats.totalEvents}</span>
+            </div>
+            <div class="stat-item success">
+                <span class="stat-label">Successful:</span>
+                <span class="stat-value">${eventStats.successCount}</span>
+            </div>
+            <div class="stat-item error">
+                <span class="stat-label">Errors:</span>
+                <span class="stat-value">${eventStats.errorCount}</span>
+            </div>
+        `;
+    }
+}
+
+// ----------------------
+// Render event history
+// ----------------------
+function renderEventHistory() {
+    historyListEl.innerHTML = '';
+    
+    if (eventHistory.length === 0) {
+        historyListEl.innerHTML = `
+            <div class="empty-history">
+                <p>No events in the past 24 hours</p>
+            </div>
+        `;
+        return;
+    }
+    
+    eventHistory.forEach(event => {
+        const eventEl = document.createElement('div');
+        eventEl.className = `event-item ${event.type.toLowerCase()}`;
+        
+        // Format the mode name for display
+        let modeDisplay = event.mode;
+        if (event.mode === 'set_times') {
+            modeDisplay = 'Set Times';
+        } else if (event.mode === 'regular_interval') {
+            modeDisplay = 'Regular Interval';
+        } else if (event.mode === 'random_interval') {
+            modeDisplay = 'Random Interval';
+        } else if (event.mode === 'system') {
+            modeDisplay = 'System';
+        }
+        
+        eventEl.innerHTML = `
+            <div class="event-header">
+                <span class="event-type-badge ${event.type.toLowerCase()}">${event.type}</span>
+                <span class="event-mode">${modeDisplay}</span>
+            </div>
+            <div class="event-timestamp">${event.timeStr}</div>
+            <div class="event-message">${event.message}</div>
+        `;
+        
+        historyListEl.appendChild(eventEl);
+    });
+}
+
+// ----------------------
+// Clear event history
+// ----------------------
+async function clearEventHistory() {
+    if (!confirm('Are you sure you want to clear all event history? This cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        const res = await fetch('/api/events', {
+            method: 'DELETE'
+        });
+        
+        if (res.ok) {
+            eventHistory = [];
+            renderEventHistory();
+            await loadEventStats();
+            showNotification('Event history cleared');
+        } else {
+            showNotification('Failed to clear event history');
+        }
+    } catch (error) {
+        console.error('Error clearing event history:', error);
+        showNotification('Error clearing event history');
+    }
 }
 
 // ----------------------
@@ -442,6 +583,20 @@ function setupEventListeners() {
         });
     }
 
+    if (clearHistoryBtn) {
+        clearHistoryBtn.addEventListener('click', clearEventHistory);
+    }
+    
+    // Refresh history button
+    if (refreshHistoryBtn) {
+        refreshHistoryBtn.addEventListener('click', async () => {
+            showNotification('Refreshing history...');
+            await loadEventHistory();
+            await loadEventStats();
+            showNotification('History refreshed');
+        });
+    }
+
 }
 
 function getAESTOffset() {
@@ -584,6 +739,10 @@ async function init() {
 
     // Load Mode Status
     await loadModeStatus();
+
+    // Load event history
+    await loadEventHistory();
+    await loadEventStats();
     
     // Set up event listeners
     setupEventListeners();
@@ -594,6 +753,12 @@ async function init() {
 
     // Refresh Mode Status every 60 seconds
     setInterval(loadModeStatus, 60000);
+
+    // Refresh event history every 5 minutes
+    setInterval(() => {
+        loadEventHistory();
+        loadEventStats();
+    }, 300000);
     
     console.log('App initialized');
 }
