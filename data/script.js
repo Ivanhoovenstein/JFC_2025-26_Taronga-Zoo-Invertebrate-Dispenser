@@ -26,6 +26,7 @@ const settingsForm = document.getElementById('settings-form');
 const timeFormatSelect = document.getElementById('time-format');
 const themeSelect = document.getElementById('theme');
 const wifiSSIDInput = document.getElementById('wifi-ssid');
+const wifiToggleEditBtn = document.getElementById('wifi-toggle-edit-btn');
 const wifiPasswordInput = document.getElementById('wifi-password');
 const wifiShowPasswordBtn = document.getElementById('wifi-show-password');
 
@@ -38,6 +39,18 @@ const notificationCloseBtn = document.getElementById('notification-close');
 const historyListEl = document.getElementById('history-list');
 const clearHistoryBtn = document.getElementById('clear-history-btn');
 const refreshHistoryBtn = document.getElementById('refresh-history-btn');
+
+// Trigger Now Elements
+const triggerNowBtn = document.getElementById('trigger-now-btn');
+
+// Compartment Check Elements
+const compartmentCheckBtn = document.getElementById('compartment-check-btn');
+
+let servoPosition = {
+    compartment: 0,
+    angle: 0,
+    maxCompartment: 5
+};
 
 let eventHistory = [];
 let eventStats = null;
@@ -101,6 +114,45 @@ async function apiDelete(path) {
 }
 
 // ----------------------
+// Load servo position
+// ----------------------
+async function loadServoPosition() {
+    try {
+        const data = await apiGet('/api/servo');
+        if (data) {
+            servoPosition = data;
+            updateServoDisplay();
+        }
+    } catch (error) {
+        console.error('Error loading servo position:', error);
+        showNotification('Error retrieving current compartment position');
+    }
+}
+
+// ----------------------
+// Update servo display info modal
+// ----------------------
+function updateServoDisplay() {
+
+    const cur = servoPosition.compartment + 1; // adjust index to start at 1
+    const max = servoPosition.maxCompartment;
+
+    let next = 0;
+    let message = ``;
+
+    if (cur == max - 1) {
+        // next = 1;
+        message = `Next activation will trigger chamber ${max}, then reset to chamber 1`;
+    } else {
+        next = (cur % max) + 1;
+        message = `Next activation will trigger chamber ${next}`;
+    }
+
+    customInfoModal(`Currently on dispensing chamber: ${cur}/${max} \n \ 
+                    ${message}`);
+}
+
+// ----------------------
 // Load System Clock Time
 // ----------------------
 async function updateCurrentTime() {
@@ -151,10 +203,6 @@ async function loadSettings() {
         timeFormatSelect.value = settings.timeFormat || '24';
         themeSelect.value = settings.theme || 'light';
         applyTheme(settings.theme || 'light');
-
-        if (settings.theme.length == 0) {
-            settings.theme = 'light';
-        }
     }
 }
 
@@ -265,8 +313,6 @@ function setupTabs() {
             // Add active class to clicked button and corresponding content
             btn.classList.add('active');
             document.getElementById(tabId).classList.add('active');
-
-            
         });
     });
 }
@@ -344,9 +390,12 @@ function renderEventHistory() {
 // Clear event history
 // ----------------------
 async function clearEventHistory() {
-    if (!confirm('Are you sure you want to clear all event history? This cannot be undone.')) {
-        return;
-    }
+    // if (!confirm('Are you sure you want to clear all event history? This cannot be undone.')) {
+    //     return;
+    // }
+
+    if (!await customConfirmModal('Are you sure you want to clear all event history? This cannot be undone.')) return;
+
     
     try {
         const res = await fetch('/api/events', {
@@ -526,7 +575,7 @@ function setupEventListeners() {
 
         // Save WiFi settings
         const wifiSSID = wifiSSIDInput.value.trim();
-        const wifiPassword = wifiPasswordInput.value;
+        // const wifiPassword = wifiPasswordInput.value;
         
         // Validate WiFi settings
         if (wifiSSID.length < 8 || wifiSSID.length > 32) {
@@ -534,17 +583,21 @@ function setupEventListeners() {
             return;
         }
         
-        if (wifiPassword.length < 8 || wifiPassword.length > 63) {
-            showNotification('Password must be 8-63 characters');
-            return;
-        }
+        // if (wifiPassword.length < 8 || wifiPassword.length > 63) {
+        //     showNotification('Password must be 8-63 characters');
+        //     return;
+        // }
         
-        const wifiSaved = await saveWiFiSettings(wifiSSID, wifiPassword);
+        const wifiSaved = await saveWiFiSettings(wifiSSID /**, wifiPassword*/);
         
         if (res.ok && wifiSaved) {
             showNotification('All settings saved successfully!');
         }
 
+    });
+
+    compartmentCheckBtn.addEventListener('click', () => {
+        loadServoPosition();
     });
 
     // WiFi show/hide password toggle
@@ -553,6 +606,27 @@ function setupEventListeners() {
             const type = wifiPasswordInput.type === 'password' ? 'text' : 'password';
             wifiPasswordInput.type = type;
             wifiShowPasswordBtn.textContent = type === 'password' ? 'Show' : 'Hide';
+        });
+    }
+
+    // WiFi toggle edit SSID
+    if (wifiToggleEditBtn) {
+        wifiToggleEditBtn.addEventListener('click', () => {
+            if (wifiSSIDInput.hasAttribute('readonly')) {
+                // Currently readonly - enable editing
+                wifiToggleEditBtn.textContent = 'Save';
+                wifiSSIDInput.removeAttribute('readonly');
+            } else {
+                // Currently editable - save and lock
+                wifiToggleEditBtn.textContent = 'Edit';  // Changed order
+                wifiSSIDInput.setAttribute('readonly', true);
+            }
+        });
+
+        wifiSSIDInput.addEventListener('focus', () => {
+            if (wifiSSIDInput.hasAttribute('readonly')) {
+                wifiSSIDInput.blur();
+            }
         });
     }
     
@@ -573,7 +647,8 @@ function setupEventListeners() {
     const sleepNowBtn = document.getElementById('sleep-now-btn');
     if (sleepNowBtn) {
         sleepNowBtn.addEventListener('click', async () => {
-            if (confirm('Enter sleep mode now? Device will wake at next scheduled time.')) {
+            // if (confirm('Enter sleep mode now? Device will wake at next scheduled time.')) {
+            if (await customConfirmModal('Enter sleep mode now? Device will wake at next scheduled time.')) {
                 showNotification('Entering sleep mode...', true);
                 await fetch('/api/sleep', { method: 'POST' });
                 setTimeout(() => {
@@ -597,6 +672,25 @@ function setupEventListeners() {
         });
     }
 
+    if (triggerNowBtn) {
+        triggerNowBtn.addEventListener('click', async () => {
+            if (await customConfirmModal('Trigger a dispenser activation now?')) {
+                await triggerNow();
+                showNotification('Activation Triggered Now!');
+            }
+        });
+    }
+
+    // Force blur on iOS inputs
+    document.addEventListener('touchend', function(e) {
+        if (!e.target.closest("input, select, textarea")) {
+            const el = document.activeElement;
+            if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
+                el.blur();
+            }
+        }
+    });
+
 }
 
 function getAESTOffset() {
@@ -618,7 +712,7 @@ async function syncTime() {
         const aestTimestamp = utcNow + offset;
         
         // Determine timezone name
-        const isDST = offset > (10 * 60 * 60 * 1000);
+        const isDST = offset > (10 * 60 * 60 * 1000); // check if offset > 10 hours
         const tzName = isDST ? 'AEDT (UTC+11)' : 'AEST (UTC+10)';
         
         // Create date object to verify
@@ -644,6 +738,14 @@ async function syncTime() {
         showNotification('Failed to sync time');
     }
     
+}
+
+// FOR DEBUG / TESTING PURPOSES
+async function triggerNow() {
+    const result = await apiPost('/api/trigger-now', {});
+    if (result) {
+        showNotification('Activation Triggered');
+    }
 }
 
 async function setModeToSetTimes() {
@@ -699,7 +801,7 @@ async function loadModeStatus() {
     const data = await apiGet('/api/mode');
     if (data) {
         // Update active mode display
-        let modeDisplay = '';
+        let modeDisplay = 'Not Set';
         if (data.activeMode === 'set_times') {
             modeDisplay = 'Set Times';
         } else if (data.activeMode === 'regular_interval') {
@@ -719,6 +821,52 @@ async function loadModeStatus() {
     }
 }
 
+function customConfirmModal(message) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirm-modal');
+        const msg = document.getElementById('confirm-message');
+        const okBtn = document.getElementById('confirm-ok');
+        const cancelBtn = document.getElementById('confirm-cancel');
+
+        msg.textContent = message;
+        modal.classList.remove('hidden');
+
+        function cleanup(result) {
+            modal.classList.add('hidden');
+            okBtn.removeEventListener('click', ok);
+            cancelBtn.removeEventListener('click', cancel);
+            resolve(result);
+        }
+
+        function ok() { cleanup(true); }
+        function cancel() { cleanup(false); }
+
+        okBtn.addEventListener('click', ok);
+        cancelBtn.addEventListener('click', cancel);
+    });
+}
+
+function customInfoModal(message) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('info-modal');
+        const msg = document.getElementById('info-message');
+        const okBtn = document.getElementById('info-ok');
+
+        msg.textContent = message;
+        modal.classList.remove('hidden');
+
+        function cleanup(result) {
+            modal.classList.add('hidden');
+            okBtn.removeEventListener('click', ok);
+            resolve(result);
+        }
+
+        function ok() { cleanup(true); }
+
+        okBtn.addEventListener('click', ok);
+    });
+}
+
 // ----------------------
 // Initialize App
 // ----------------------
@@ -727,6 +875,7 @@ async function init() {
     
     // Load settings first
     await loadSettings();
+    applyTheme(settings.theme || 'light');
 
     // Load WiFi Config
     await loadWiFiSettings();
@@ -759,8 +908,10 @@ async function init() {
         loadEventHistory();
         loadEventStats();
     }, 300000);
+
     
     console.log('App initialized');
+    // applyTheme('dark');
 }
 
 // Start the app when DOM is ready

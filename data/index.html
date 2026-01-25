@@ -9,15 +9,21 @@
 <body>
     <div class="container">
         <header>
-            <h1>Taronga Zoo Curlew Feeder</h1>
+            <img src="taronga-zoo-logo.png" alt="" class="title-img">
             <p class="subtitle" style="margin-bottom: 1rem;">A programmable feeder interface to feed one special bird called Uma</p>
 
             <div class="dashboard-container">
 
                 <div class="active-mode-container">
                     <div class="active-mode" style="margin-bottom: 1rem;">
-                        <h3>Active Mode</h3>
-                        <span class="active-mode-label" id="active-mode">Checking...</span>
+                        <div class="mode-label-title">
+                            <h3>Active Mode</h3>
+                            <button class="compartment-check-btn" id="compartment-check-btn">&#10035;</button>
+                            <!-- &#x2732; -->
+                        </div>
+                        <div class="mode-label-text">
+                            <span class="active-mode-label" id="active-mode">Checking...</span>
+                        </div>
                     </div>
 
                     <div class="next-activation-time">
@@ -54,6 +60,9 @@
             </button>
             <button class="tab-btn" data-tab="rand-interval">
                 Random Interval
+            </button>
+            <button class="tab-btn" data-tab="activate-now">
+                Activate Now
             </button>
         </div>
 
@@ -120,6 +129,18 @@
             </div>
         </div>
 
+        <div class="tab-content" id="activate-now">
+            <div class="page-container">
+                <h2 style="text-align: center; margin-bottom: 1rem;">Trigger one dispensing activation now</h2>
+
+                <div class="trigger-now-container">
+                    <button class="trigger-now-btn" id="trigger-now-btn">
+                        Trigger NOW
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <div class="tab-content" id="history">
             <div class="page-container">
                 <h2 style="text-align: center; margin-bottom: 1rem;">Event History</h2>
@@ -154,7 +175,7 @@
 
                 <button class="sync-time-btn" id="sync-time-btn">Sync System Time</button>
 
-                <form class="settings-form" id="settings-form">
+                <form class="settings-form" id="settings-form" autocomplete="off">
                     <div class="wifi-settings-section">
 
                         <h3>WiFi Access Point</h3>
@@ -163,19 +184,24 @@
 
                         <div class="form-group">
                             <label for="wifi-ssid">Network Name (SSID)</label>
-                            <input 
-                                type="text" 
-                                id="wifi-ssid" 
-                                name="wifi-ssid" 
-                                placeholder="Enter network name"
-                                minlength="8"
-                                maxlength="32"
-                                required
-                            >
+                            <div class="wifi-input-group">
+                                <input 
+                                    type="text" 
+                                    id="wifi-ssid" 
+                                    name="wifi-ssid" 
+                                    placeholder="Enter network name"
+                                    minlength="8"
+                                    maxlength="32"
+                                    readonly
+                                    tabindex="-1"
+                                    required
+                                >
+                                <button type="button" id="wifi-toggle-edit-btn" class="wifi-toggle-edit-btn">Edit</button>
+                            </div>
                             <small>8-32 characters</small>
                         </div>
     
-                        <div class="form-group">
+                        <!-- <div class="form-group">
                             <label for="wifi-password">Password</label>
                             <div class="password-input-group">
                                 <input 
@@ -190,7 +216,7 @@
                                 <button type="button" id="wifi-show-password" class="show-password-btn">Show</button>
                             </div>
                             <small>8-63 characters</small>
-                        </div>
+                        </div> -->
                     </div>
 
                     <!-- Divider -->
@@ -245,6 +271,25 @@
     <div class="notification" id="notification">
         <span id="notification-message">Notification message</span>
         <button class="close-btn" id="notification-close">&times;</button>
+    </div>
+
+    <div id="confirm-modal" class="modal hidden">
+        <div class="modal-box">
+          <p id="confirm-message"></p>
+          <div class="modal-btn-container">
+            <button class="modal-cancel-btn" id="confirm-cancel">Cancel</button>
+            <button class="modal-ok-btn" id="confirm-ok">OK</button>
+          </div>
+        </div>
+    </div>
+
+    <div id="info-modal" class="modal hidden">
+        <div class="modal-box">
+          <p id="info-message"></p>
+          <div class="modal-btn-container">
+            <button class="modal-ok-btn" id="info-ok">OK</button>
+          </div>
+        </div>
     </div>
 
 

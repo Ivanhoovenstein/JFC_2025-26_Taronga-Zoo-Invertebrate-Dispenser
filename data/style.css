@@ -53,8 +53,17 @@ header {
     margin-bottom: 2rem;
 }
 
+.title-img {
+    margin: 1rem;
+    height: 150px;
+}
+
 p {
-    padding: 2rem;
+    padding: 0.5rem;
+}
+
+input, select, textarea {
+    font-size: 16px; /* stops iOS zoom-in behavior that traps focus */
 }
 
 h1 {
@@ -67,7 +76,7 @@ h1 {
 }
 
 .subtitle {
-    color: var(--primary-color);
+    color: var(--font-color);
     opacity: 0.8;
     font-size: 1rem;
 }
@@ -221,16 +230,13 @@ h1 {
 }
 
 .alarm-form input, .alarm-form select {
-    padding: 0.8rem 2rem;
+    padding: 0.8rem 1rem;
     border-radius: 8px;
     border: 1px solid rgba(255, 255, 255, 0.2);
     background: rgba(255, 255, 255, 0.1);
-    color: white;
+    color: var(--font-color);
     font-size: 1rem;
-}
-
-.light-theme .alarm-form input, .alarm-form select {
-    background: rgba(41, 98, 51, 0.6)
+    border-color: var(--primary-color);
 }
 
 .alarm-form button {
@@ -265,7 +271,7 @@ h1 {
 }
 
 .light-theme .alarm-item {
-    background: rgba(41, 98, 51, 0.6);
+    background: rgba(201, 201, 201, 0.5);
 }
 
 .alarm-item.active {
@@ -520,8 +526,48 @@ h1 {
 
 .active-mode-container h3 {
     text-align: left;
-    margin-bottom: 2rem;
+    /* margin-bottom: 2rem; */
     font-size: 1.1rem;
+}
+
+.active-mode-label {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+}
+
+.mode-label-title {
+    display: flex;
+    border-color: #05111d;
+    align-items: center;
+    justify-content: center;
+}
+
+.compartment-check-btn {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    width: 25px;
+    height: 25px;
+    font-size: 25px;
+    text-align: center;
+    background: var(--primary-color);
+    color: white;
+    padding-bottom: 3px;
+}
+
+.compartment-check-btn:hover {
+    background: var(--secondary-color);
+}
+
+.mode-label-text{
+    margin-top: 2rem;
+    margin-bottom: 2rem;
+}
+
+.mode-label-text {
+    font-size: 1.2rem;
 }
 
 .next-activation-time h3 {
@@ -746,4 +792,110 @@ h1 {
     font-size: 1rem;
     line-height: 1.5;
     padding: 0.5rem 0;
+}
+
+/* ------- DEBUG / TESTING ACTIVATION BUTTON -------- */
+.trigger-now-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.trigger-now-btn {
+    padding: 0.8rem 1.5rem;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+    width: 50%;
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+    max-width: 500px;
+    display: block;
+    align-items: center;
+    justify-content: center;
+}
+/* --------------------------------------------------- */
+
+/* ------------ CONFIRM MODAL ------------------------ */
+.modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .hidden {
+    display: none;
+  }
+  .modal-box {
+    background: var(--background-color);
+    padding: 20px;
+    border-radius: 8px;
+    width: 80%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    gap: 1rem;
+  }
+
+  .modal-btn-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 3rem;
+      margin-top: 1rem;
+      margin-bottom: 1rem;
+  }
+
+  .modal-btn-container button {
+    padding: 10px 16px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    white-space: nowrap;
+    color: white;
+    max-width: 100px;
+    width: fit-content;
+  }
+
+  .modal-cancel-btn {
+    background: #c62828;
+  }
+
+  .modal-ok-btn {
+    background: var(--primary-color);
+}
+
+  /* --------------------------------------------------- */
+
+.wifi-input-group {
+    display: flex;
+    gap: 8px;
+}
+
+.wifi-input-group input {
+    flex: 1;
+}
+
+.wifi-toggle-edit-btn {
+    padding: 10px 16px;
+    background: var(--primary-color);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    white-space: nowrap;
+    color: white;
+}
+
+.wifi-toggle-edit-btn:hover {
+    background: var(--secondary-color);
 }

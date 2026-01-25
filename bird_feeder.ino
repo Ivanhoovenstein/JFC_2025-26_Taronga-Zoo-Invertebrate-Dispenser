@@ -75,6 +75,8 @@ const int MAX_EVENTS_IN_MEMORY = 100;  // Keep last 100 events in memory
 const uint32_t EVENT_RETENTION_SECONDS = 86400;  // 24 hours
 
 
+void triggerActivation(bool noMode = false);
+
 // ----------------------------------------
 // Calculate next wake time and configure RTC alarm
 // ----------------------------------------
@@ -84,8 +86,8 @@ void configureNextWake() {
     bool alarmSet = false;
     
     Serial.println("\n=== Configuring Next Wake ===");
-    Serial.printf("Current time (AEST): %04d-%02d-%02d %02d:%02d:%02d\n",
-                 now.year(), now.month(), now.day(),
+    Serial.printf("Current time (AEST): %02d-%02d-%04d %02d:%02d:%02d\n",
+                 now.day(), now.month(), now.year(),
                  now.hour(), now.minute(), now.second());
     
     if (modeConfig.activeMode == "set_times") {
@@ -286,6 +288,71 @@ String alarmsToJson() {
 }
 
 // ----------------------------------------
+// Save compartment position to LittleFS
+// ----------------------------------------
+void saveCompartmentPosition() {
+    File f = LittleFS.open("/servo.json", "w");
+    if (!f) {
+        Serial.println("Failed to open servo.json for writing");
+        logEvent("ERROR", "system", "Failed to save servo position in servo config (servo.json)");
+        return;
+    }
+    
+    DynamicJsonDocument doc(128);
+    doc["compartment"] = compartment;
+    doc["angle"] = compartment * 60;  // Store current angle too
+    
+    String jsonStr;
+    serializeJson(doc, jsonStr);
+    f.print(jsonStr);
+    f.close();
+    
+    Serial.printf("Saved servo position: compartment=%d, angle=%d\n", 
+                  compartment, compartment * 60);
+}
+
+// ----------------------------------------
+// Load compartment position from LittleFS
+// ----------------------------------------
+void loadCompartmentPosition() {
+    if (!LittleFS.exists("/servo.json")) {
+        Serial.println("servo.json not found, starting at compartment 0");
+        logEvent("ERROR", "System", "Error opening servo config file (servo.json) - File Not Found");
+
+        compartment = 0;
+        saveCompartmentPosition();
+        return;
+    }
+    
+    File f = LittleFS.open("/servo.json", "r");
+    if (!f) {
+        Serial.println("Failed to open servo.json for reading");
+
+        logEvent("ERROR", "System", "Error opening servo config file for reading (servo.json)");
+        compartment = 0;
+        return;
+    }
+    
+    String json = f.readString();
+    f.close();
+    
+    DynamicJsonDocument doc(128);
+    DeserializationError err = deserializeJson(doc, json);
+    if (err) {
+        Serial.print("Error parsing servo.json: ");
+        Serial.println(err.c_str());
+        compartment = 0;
+        return;
+    }
+    
+    compartment = doc["compartment"];
+    int savedAngle = doc["angle"];
+    
+    Serial.printf("Loaded servo position: compartment=%d, angle=%d\n", 
+                  compartment, savedAngle);
+}
+
+// ----------------------------------------
 // Load WiFi settings from LittleFS
 // ----------------------------------------
 void loadWiFiSettings() {
@@ -293,7 +360,8 @@ void loadWiFiSettings() {
         Serial.println("wifi.json not found, creating default");
         File f = LittleFS.open("/wifi.json", "w");
         if (f) {
-            f.print("{\"ssid\":\"Taronga Zoo Curlew Feeder\",\"password\":\"12345678\"}");
+            // f.print("{\"ssid\":\"Taronga Zoo Curlew Feeder\",\"password\":\"12345678\"}");
+            f.print("{\"ssid\":\"Taronga Zoo Curlew Feeder\"}");
             f.close();
         }
         return;
@@ -302,6 +370,8 @@ void loadWiFiSettings() {
     File f = LittleFS.open("/wifi.json", "r");
     if (!f) {
         Serial.println("Failed to open wifi.json");
+
+        logEvent("ERROR", "System", "Error opening wifi config (wifi.json)");
         return;
     }
     
@@ -313,11 +383,13 @@ void loadWiFiSettings() {
     if (err) {
         Serial.print("Error parsing wifi.json: ");
         Serial.println(err.c_str());
+
+        logEvent("ERROR", "System", "Error reading wifi config from file (wifi.json)");
         return;
     }
     
     currentSSID = doc["ssid"].as<String>();
-    currentPassword = doc["password"].as<String>();
+    // currentPassword = doc["password"].as<String>();
     
     // Validate SSID and password
     if (currentSSID.length() == 0 || currentSSID.length() > 32) {
@@ -325,29 +397,31 @@ void loadWiFiSettings() {
         currentSSID = "Taronga Zoo Curlew Feeder";
     }
     
-    if (currentPassword.length() < 8 || currentPassword.length() > 63) {
-        Serial.println("Invalid password length, using default");
-        currentPassword = "12345678";
-    }
+    // if (currentPassword.length() < 8 || currentPassword.length() > 63) {
+    //     Serial.println("Invalid password length, using default");
+    //     currentPassword = "12345678";
+    // }
     
     Serial.println("Loaded WiFi settings:");
     Serial.println("  SSID: " + currentSSID);
-    Serial.println("  Password: " + String(currentPassword.length()) + " characters");
+    // Serial.println("  Password: " + String(currentPassword.length()) + " characters");
 }
 
 // ----------------------------------------
 // Save WiFi settings to LittleFS
 // ----------------------------------------
-void saveWiFiSettings(String ssid, String password) {
+void saveWiFiSettings(String ssid /**, String password */) {
     File f = LittleFS.open("/wifi.json", "w");
     if (!f) {
         Serial.println("Failed to open wifi.json for writing");
+
+        logEvent("ERROR", "System", "Error opening wifi config for writing (wifi.json)");
         return;
     }
     
     DynamicJsonDocument doc(256);
     doc["ssid"] = ssid;
-    doc["password"] = password;
+    // doc["password"] = password;
     
     String jsonStr;
     serializeJson(doc, jsonStr);
@@ -383,8 +457,8 @@ void logEvent(String type, String mode, String message) {
     
     // Format and print to serial
     char timeStr[20];
-    snprintf(timeStr, sizeof(timeStr), "%04d-%02d-%02d %02d:%02d:%02d",
-             now.year(), now.month(), now.day(),
+    snprintf(timeStr, sizeof(timeStr), "%02d-%02d-%04d %02d:%02d:%02d",
+             now.day(), now.month(), now.year(),
              now.hour(), now.minute(), now.second());
     
     Serial.printf("[%s] [%s] [%s] %s\n", 
@@ -398,6 +472,8 @@ void saveEventToFile(const EventLog &event) {
     File f = LittleFS.open("/events.log", "a");  // Append mode
     if (!f) {
         Serial.println("Failed to open events.log for writing");
+
+        logEvent("ERROR", "System", "Error opening event log for writing (events.log)");
         return;
     }
     
@@ -419,6 +495,8 @@ void loadEventsFromFile() {
     
     if (!LittleFS.exists("/events.log")) {
         Serial.println("events.log not found");
+
+        logEvent("ERROR", "System", "No event log file found (events.log)");
         return;
     }
     
@@ -512,8 +590,8 @@ String eventsToJson() {
             // Format human-readable time
             DateTime dt(event.timestamp);
             char timeStr[20];
-            snprintf(timeStr, sizeof(timeStr), "%04d-%02d-%02d %02d:%02d:%02d",
-                     dt.year(), dt.month(), dt.day(),
+            snprintf(timeStr, sizeof(timeStr), "%02d-%02d-%04d %02d:%02d:%02d",
+                     dt.day(), dt.month(), dt.year(),
                      dt.hour(), dt.minute(), dt.second());
             o["timeStr"] = timeStr;
         }
@@ -531,6 +609,8 @@ void saveModeConfig() {
     File f = LittleFS.open("/mode.json", "w");
     if (!f) {
         Serial.println("Failed to open mode.json for writing");
+
+        logEvent("ERROR", "System", "Error reading mode config from file (mode.json)");
         return;
     }
     
@@ -571,6 +651,8 @@ void loadModeConfig() {
     File f = LittleFS.open("/mode.json", "r");
     if (!f) {
         Serial.println("Failed to open mode.json");
+
+        logEvent("ERROR", "System", "Error opening mode config file (mode.json)");
         return;
     }
     
@@ -582,6 +664,8 @@ void loadModeConfig() {
     if (err) {
         Serial.print("Error parsing mode.json: ");
         Serial.println(err.c_str());
+
+        logEvent("ERROR", "System", "Error reading mode config file (mode.json)");
         return;
     }
     
@@ -608,6 +692,8 @@ void saveAlarms() {
     File f = LittleFS.open("/alarms.json", "w");
     if (!f) {
         Serial.println("Failed to open alarms.json for writing");
+
+        logEvent("ERROR", "System", "Error opening set-times config file (alarms.json)");
         return;
     }
     String jsonStr = alarmsToJson();
@@ -630,6 +716,8 @@ void loadAlarms() {
     File f = LittleFS.open("/alarms.json", "r");
     if (!f) {
         Serial.println("Failed to open alarms.json for reading");
+
+        logEvent("ERROR", "System", "Error opening mode set-times file for reading (alarms.json)");
         return;
     }
     
@@ -696,7 +784,7 @@ void initSettings() {
         Serial.println("settings.json not found, creating default");
         File f = LittleFS.open("/settings.json", "w");
         if (f) {
-            f.print("{\"timeFormat\":\"24\",\"theme\":\"light\"}");
+            f.print("{\"timeFormat\":\"12\",\"theme\":\"light\"}");
             f.close();
         }
     }
@@ -708,6 +796,20 @@ void initSettings() {
 // Register all HTTP routes 
 // ----------------------------------------
 void registerRoutes() {
+
+    // GET current servo position
+    server.on("/api/servo", HTTP_GET, []() {
+        setCORSHeaders();
+        
+        DynamicJsonDocument doc(256);
+        doc["compartment"] = compartment;
+        doc["angle"] = compartment * 60;
+        doc["maxCompartment"] = maxCompartment;
+        
+        String json;
+        serializeJson(doc, json);
+        server.send(200, "application/json", json);
+    });
 
     // GET event history
     server.on("/api/events", HTTP_GET, []() {
@@ -795,6 +897,10 @@ void registerRoutes() {
         serveStaticFile("/script.js", "application/javascript"); 
     });
 
+    server.on("/taronga-zoo-logo.png", HTTP_GET, []() {
+        serveStaticFile("/taronga-zoo-logo.png", "image/png");
+    });
+
     // GET alarms
     server.on("/api/alarms", HTTP_GET, []() {
         setCORSHeaders();
@@ -816,6 +922,8 @@ void registerRoutes() {
         if (err) {
             Serial.print("Error parsing POST data: ");
             Serial.println(err.c_str());
+
+            logEvent("ERROR", "System", "Error parsing set-time addition request");
             server.send(400, "text/plain", "Invalid JSON");
             return;
         }
@@ -851,6 +959,8 @@ void registerRoutes() {
         File f = LittleFS.open("/settings.json", "w");
         if (!f) {
             Serial.println("Failed to save settings");
+
+            logEvent("ERROR", "System", "Error saving settings to file (settings.json)");
             server.send(500, "text/plain", "Failed to save settings");
             return;
         }
@@ -859,6 +969,21 @@ void registerRoutes() {
         
         Serial.println("Settings saved successfully");
         server.send(200, "text/plain", "OK");
+    });
+
+    // DEBUG / TESTING FUNCTION TO TRIGGER ACTIVATION ON REQUEST
+    server.on("/api/trigger-now", HTTP_POST, []() {
+        setCORSHeaders();
+
+        //
+        triggerActivation(true);
+
+        server.send(200, "text/plain", "OK");
+    });
+
+    server.on("/api/trigger-now", HTTP_OPTIONS, []() {
+        setCORSHeaders();
+        server.send(200, "text/plain", "");
     });
 
     // GET current time from RTC
@@ -1063,6 +1188,8 @@ void registerRoutes() {
         if (error) {
             Serial.print("Error parsing sync-time JSON: ");
             Serial.println(error.c_str());
+
+            logEvent("ERROR", "System", "Error parsing sync-time request");
             server.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid JSON\"}");
             return;
         }
@@ -1080,7 +1207,7 @@ void registerRoutes() {
         rtc.adjust(newTime);
         
         Serial.printf("RTC time synced to AEST: %04d-%02d-%02d %02d:%02d:%02d\n",
-                    newTime.year(), newTime.month(), newTime.day(),
+                    newTime.day(), newTime.month(), newTime.year(),
                     newTime.hour(), newTime.minute(), newTime.second());
         
         server.send(200, "application/json", "{\"success\":true}");
@@ -1098,7 +1225,7 @@ void registerRoutes() {
         
         DynamicJsonDocument doc(256);
         doc["ssid"] = currentSSID;
-        doc["password"] = currentPassword;
+        // doc["password"] = currentPassword;
         
         String json;
         serializeJson(doc, json);
@@ -1123,12 +1250,14 @@ void registerRoutes() {
         if (err) {
             Serial.print("Error parsing WiFi settings: ");
             Serial.println(err.c_str());
+
+            logEvent("ERROR", "System", "Error parsing WiFi settings");
             server.send(400, "text/plain", "Invalid JSON");
             return;
         }
         
         String newSSID = doc["ssid"].as<String>();
-        String newPassword = doc["password"].as<String>();
+        // String newPassword = doc["password"].as<String>();
         
         // Validate SSID
         if (newSSID.length() == 0 || newSSID.length() > 32) {
@@ -1138,22 +1267,23 @@ void registerRoutes() {
         }
         
         // Validate password
-        if (newPassword.length() < 8 || newPassword.length() > 63) {
-            server.send(400, "application/json", 
-                "{\"error\":\"Password must be 8-63 characters\"}");
-            return;
-        }
+        // if (newPassword.length() < 8 || newPassword.length() > 63) {
+        //     server.send(400, "application/json", 
+        //         "{\"error\":\"Password must be 8-63 characters\"}");
+        //     return;
+        // }
         
         // Save to file
-        saveWiFiSettings(newSSID, newPassword);
+        // saveWiFiSettings(newSSID, newPassword);
+        saveWiFiSettings(newSSID);
         
         // Update current settings
         currentSSID = newSSID;
-        currentPassword = newPassword;
+        // currentPassword = newPassword;
         
         Serial.println("WiFi settings updated successfully");
         Serial.println("  New SSID: " + currentSSID);
-        Serial.println("  Password length: " + String(currentPassword.length()));
+        // Serial.println("  Password length: " + String(currentPassword.length()));
         
         // Send success response with info about restart requirement
         server.send(200, "application/json", 
@@ -1242,7 +1372,10 @@ void registerRoutes() {
 // ----------------------------------------
 void setupCaptivePortal() {
     // Use the loaded SSID and password
-    WiFi.softAP(currentSSID.c_str(), currentPassword.c_str());
+    // WiFi.softAP(currentSSID.c_str(), currentPassword.c_str());
+
+    // Initialise access point with current name and no password
+    WiFi.softAP(currentSSID.c_str(), NULL);
 
     dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
 
@@ -1276,7 +1409,7 @@ void checkTriggers() {
         for (auto &a : alarms) {
             if (a.active && a.time == current && rtcTime.second() == 0) {
                 Serial.printf("SET TIMES: Alarm triggered at %s!\n", a.time.c_str());
-                doSomething();
+                triggerActivation();
                 break;
             }
         }
@@ -1303,7 +1436,7 @@ void checkTriggers() {
                 Serial.printf("REGULAR INTERVAL: Triggered after %dh %dm\n", 
                              modeConfig.regIntervalHours, modeConfig.regIntervalMinutes);
                 
-                doSomething();
+                triggerActivation();
                 
                 // Update last trigger time
                 modeConfig.regIntervalLastTriggerUnix = currentUnix;
@@ -1330,7 +1463,7 @@ void checkTriggers() {
             Serial.printf("RANDOM INTERVAL: Triggered at random time within %dh %dm window\n",
                          modeConfig.randIntervalHours, modeConfig.randIntervalMinutes);
             
-            doSomething();
+            triggerActivation();
             
             // Calculate next random trigger time
             uint32_t intervalSeconds = (modeConfig.randIntervalHours * 3600UL + 
@@ -1349,7 +1482,7 @@ void checkTriggers() {
 // ----------------------------------------
 // Actuator trigger function
 // ----------------------------------------
-void doSomething() {
+void triggerActivation(bool noMode) {
     Serial.println("========================================");
     Serial.println("TRIGGER EVENT!");
     Serial.printf("Mode: %s\n", modeConfig.activeMode.c_str());
@@ -1378,7 +1511,11 @@ void doSomething() {
     }
 
     if (success) {
-        logEvent("SUCCESS", modeConfig.activeMode, "Activation completed successfully");
+        if (noMode) {
+            logEvent("SUCCESS", "Manual Activation", "Activation completed successfully");
+        } else {
+            logEvent("SUCCESS", modeConfig.activeMode, "Activation completed successfully");
+        }
     } else {
         logEvent("ERROR", modeConfig.activeMode, errorMessage);
     }
@@ -1392,10 +1529,14 @@ void doSomething() {
 void moveToAngle(int angle) {
   //angle = constrain(angle, 0, 360);
 
-  float mechAngle = angle * (MECH_RANGE / 360.0);
-  int pulse = map(mechAngle, 0, MECH_RANGE, minPulse, maxPulse);
+  float newAngle = angle;
+  float oldAngle = angle - (360 / maxCompartment);
 
-  myServo.writeMicroseconds(pulse);
+  for (int i = oldAngle; i < newAngle; i = i + 5) {
+    int pulse = map(i, 0, MECH_RANGE, minPulse, maxPulse);
+    myServo.writeMicroseconds(pulse);
+    delay(1);
+  }
 
 //   Serial.print("Angle: ");
 //   Serial.print(angle);
@@ -1404,18 +1545,26 @@ void moveToAngle(int angle) {
 }
 
 void advanceCompartment() {
-    // Advance compartment index
-  compartment++;
-
   // Move to current compartment
-  int angle = compartment * 60;
+  Serial.println(compartment);
+
+  int angle = (compartment + 1) * 60;
+
+  if (angle >= 300) {
+    moveToAngle(angle);
+    delay(2000);          // allow last item to drop
+    compartment = 0;
+
+    saveCompartmentPosition();
+
+    moveToAngle(0);      // return to deadspace
+    return;
+  }
+
   moveToAngle(angle);
 
-  if (compartment == (maxCompartment - 1)) {
-    delay(1000);          // allow last item to drop
-    compartment = 0;
-    moveToAngle(0);      // return to deadspace
-  }
+  compartment++;
+  saveCompartmentPosition();
 }
 
 // ----------------------------------------
@@ -1442,6 +1591,7 @@ void setup() {
 
     if (!rtc.begin(&Wire)) {
         Serial.println("RTC not found!");
+        logEvent("ERROR", "System", "RTC communication error on startup - clock may have lost power");
     } else {
         Serial.println("RTC initialized");
         
@@ -1461,9 +1611,12 @@ void setup() {
 
     if (!LittleFS.begin(true)) {
         Serial.println("LittleFS Mount Failed");
+        logEvent("ERROR", "System", "Flash Memory (LittleFS) error on startup");
         return;
     }
     Serial.println("LittleFS mounted");
+
+    loadCompartmentPosition();
 
     loadWiFiSettings();
 
@@ -1477,8 +1630,6 @@ void setup() {
     // Load event history
     loadEventsFromFile();
     
-    // Log startup event
-    logEvent("SUCCESS", "system", "System started/woke from sleep");
     
     Serial.print("Wake reason: ");
     switch(wakeup_reason) {
@@ -1486,7 +1637,7 @@ void setup() {
 
             Serial.println("RTC alarm wake detected - triggering event");
 
-            doSomething();
+            triggerActivation();
 
             apModeActive = false;
 
@@ -1495,7 +1646,8 @@ void setup() {
                 // Serial.println("WAKEUP_EXT1");
             Serial.println("Button wake detected - starting AP mode");
 
-            delay(500);
+            delay(300);
+            // if button is still low after delay, false alarm -> go back to sleep
             if (digitalRead(BUTTON_PIN) == 0) {
                 configureNextWake();
                 enterDeepSleep();
@@ -1516,6 +1668,9 @@ void setup() {
             apStartTime = millis();
             break;
     }
+
+    // Log startup event
+    logEvent("SUCCESS", "System", "System started/woke from sleep");
     
     // If woken by RTC alarm (not button), trigger the event immediately
     if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
@@ -1524,7 +1679,7 @@ void setup() {
         DateTime now = rtc.now();
         uint32_t currentUnix = now.unixtime();
         
-        doSomething();
+        triggerActivation();
         
         // Update trigger times based on mode
         if (modeConfig.activeMode == "set_times") {

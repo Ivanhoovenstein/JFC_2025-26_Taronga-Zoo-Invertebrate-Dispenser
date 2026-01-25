@@ -1,1 +1,9 @@
-
+{
+    "activeMode":"",
+    "regIntervalHours":2,
+    "regIntervalMinutes":0,
+    "regIntervalLastTriggerUnix":0,
+    "randIntervalHours":2,
+    "randIntervalMinutes":0,
+    "randIntervalNextTriggerUnix":0
+}
