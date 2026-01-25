@@ -489,7 +489,7 @@ async function toggleAlarm(id) {
         alarms = result;
         renderAlarms();
         const alarm = alarms.find(a => a.id === id);
-        showNotification(`Alarm ${alarm.active ? 'enabled' : 'disabled'}`);
+        showNotification(`Set time ${alarm.active ? 'enabled' : 'disabled'}`);
     }
 }
 
@@ -501,7 +501,7 @@ async function deleteAlarm(id) {
     if (result) {
         alarms = result;
         renderAlarms();
-        showNotification('Alarm deleted');
+        showNotification('Set time deleted');
     }
 }
 
