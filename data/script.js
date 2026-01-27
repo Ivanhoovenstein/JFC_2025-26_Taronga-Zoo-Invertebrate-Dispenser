@@ -674,7 +674,7 @@ function setupEventListeners() {
 
     if (triggerNowBtn) {
         triggerNowBtn.addEventListener('click', async () => {
-            if (await customConfirmModal('Trigger a dispenser activation now?')) {
+            if (await customConfirmModal('Are you sure?')) {
                 await triggerNow();
                 showNotification('Activation Triggered Now!');
             }
@@ -821,6 +821,41 @@ async function loadModeStatus() {
     }
 }
 
+function percentageToColor(percentage) {
+    // Ensure the percentage is within the valid range [0, 100]
+    percentage = Math.max(0, Math.min(100, percentage));
+  
+    // Map the percentage to a hue value: 
+    // 100% (green) maps to 120 degrees
+    // 0% (red) maps to 0 degrees
+    // The range is 120 degrees (green) to 0 degrees (red)
+    const hue = (percentage / 100) * 120;
+  
+    // Return the HSL color string. Saturation and lightness are kept at 100% and 50% for vibrant colors.
+    return `hsl(${hue}, 100%, 50%)`;
+  }
+
+// Get Battery Charge
+async function loadBatteryCharge() {
+    const data = await apiGet('/api/mode');
+    if (data) {
+        const batteryStatus = document.getElementById('battery-status');
+        batteryStatus.textContent = data.battery + "%";
+
+        let color = percentageToColor(data.battery);
+        const batteryIndicator = document.getElementById('battery-indicator');
+        batteryIndicator.style.background = color;
+    }
+
+    // let test = 100;
+    // const batteryStatus = document.getElementById('battery-status');
+    // batteryStatus.textContent = test + "%";
+
+    // let color = percentageToColor(test);
+    // const batteryIndicator = document.getElementById('battery-indicator');
+    // batteryIndicator.style.background = color;
+}   
+
 function customConfirmModal(message) {
     return new Promise((resolve) => {
         const modal = document.getElementById('confirm-modal');
@@ -892,6 +927,12 @@ async function init() {
     // Load event history
     await loadEventHistory();
     await loadEventStats();
+
+    // Load battery charge
+    await loadBatteryCharge();
+
+    // Refresh battery charge every 60 seconds
+    setInterval(loadBatteryCharge, 60000);
     
     // Set up event listeners
     setupEventListeners();

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <esp_sleep.h>
 #include <ESP32Servo.h>
+#include <Adafruit_INA219.h>
 
 #define I2C_SDA_PIN 33
 #define I2C_SCL_PIN 32
@@ -30,7 +31,10 @@ int maxCompartment = 6; // This is our design for now.
 unsigned long apStartTime = 0;
 bool apModeActive = false;
 
+// Battery Sensor
+Adafruit_INA219 ina219;
 
+// Real Time Clock
 RTC_DS3231 rtc;
 WebServer server(80);
 DNSServer dnsServer;
@@ -903,6 +907,25 @@ void registerRoutes() {
         server.send(200, "application/json", json);
     });
 
+    // GET current battery charge
+    server.on("/api/battery", HTTP_GET, []() {
+        setCORSHeaders();
+
+        int batteryPercent = runBatteryCheck();
+
+        DynamicJsonDocument doc(256);
+        doc["battery"] = batteryPercent;
+
+        String json;
+        serializeJson(doc, json);
+        server.send(200, "application/json", json);
+    });
+
+    server.on("/api/battery", HTTP_OPTIONS, []() {
+        setCORSHeaders();
+        server.send(200, "text/plain", "");
+    });
+
     // GET event history
     server.on("/api/events", HTTP_GET, []() {
         setCORSHeaders();
@@ -1063,11 +1086,11 @@ void registerRoutes() {
         server.send(200, "text/plain", "OK");
     });
 
-    // DEBUG / TESTING FUNCTION TO TRIGGER ACTIVATION ON REQUEST
+    // Manual Activation
     server.on("/api/trigger-now", HTTP_POST, []() {
         setCORSHeaders();
 
-        //
+        // trigger servo activation with noMode set to true
         triggerActivation(true);
 
         server.send(200, "text/plain", "OK");
@@ -1643,6 +1666,34 @@ void advanceCompartment() {
   saveCompartmentPosition();
 }
 
+float checkVoltage() {
+  float busvoltage = ina219.getBusVoltage_V(); // Reads supply voltage
+  return busvoltage; 
+}
+
+int voltageToSOC(float v) { //piecewise approximation of the battery's charge
+  if (v >= 8.40) return 100;
+  if (v >= 8.20) return 90;
+  if (v >= 8.00) return 80;
+  if (v >= 7.80) return 70;
+  if (v >= 7.60) return 60;
+  if (v >= 7.40) return 50;
+  if (v >= 7.20) return 40;
+  if (v >= 7.00) return 30;
+  if (v >= 6.80) return 20;
+  if (v >= 6.60) return 10;
+  return 0;
+}
+
+int runBatteryCheck() {
+  float busvoltage = checkVoltage();
+  int batteryPercent = voltageToSOC(busvoltage);
+  Serial.print("Supply Voltage: "); Serial.print(busvoltage); Serial.println(" V");
+  Serial.print("Battery Charge: "); Serial.print(batteryPercent); Serial.println(" %");
+
+  return batteryPercent;
+}
+
 // ----------------------------------------
 // Setup
 // ----------------------------------------
@@ -1659,6 +1710,14 @@ void setup() {
 
     myServo.attach(servoPin); // Attach the servo to the pin
     myServo.setPeriodHertz(50);
+
+    // Start file system (including for logging events)
+    if (!LittleFS.begin(true)) {
+        Serial.println("LittleFS Mount Failed");
+        logEvent("ERROR", "System", "Flash Memory (LittleFS) error on startup");
+        return;
+    }
+    Serial.println("LittleFS mounted");
     
     // Check wake reason
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
@@ -1685,12 +1744,12 @@ void setup() {
                       now.hour(), now.minute(), now.second());
     }
 
-    if (!LittleFS.begin(true)) {
-        Serial.println("LittleFS Mount Failed");
-        logEvent("ERROR", "System", "Flash Memory (LittleFS) error on startup");
-        return;
+    if (!ina219.begin()) {
+        Serial.println("Failed to find INA219 chip");
+        logEvent("ERROR", "System", "Failed to find INA219 (battery sensor) on startup");
+        // while (1) { delay(10); }
     }
-    Serial.println("LittleFS mounted");
+    Serial.println("INA219 (Battery Sensor) Found");
 
     loadCompartmentPosition();
 
@@ -1710,11 +1769,6 @@ void setup() {
     Serial.print("Wake reason: ");
     switch(wakeup_reason) {
         case ESP_SLEEP_WAKEUP_EXT0:
-
-            Serial.println("RTC alarm wake detected - triggering event");
-
-            // triggerActivation();
-
             apModeActive = false;
 
             break;
@@ -1755,7 +1809,7 @@ void setup() {
     // If woken by RTC alarm (not button), trigger the event immediately
     if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
         Serial.println("\nRTC alarm wake - triggering scheduled event...");
-        
+
         DateTime now = rtc.now();
         uint32_t currentUnix = now.unixtime();
         
@@ -1808,6 +1862,8 @@ void loop() {
         dnsServer.processNextRequest();
         server.handleClient();
         checkTriggers();
+
+        // runBatteryCheck();
         
         // Check if AP timeout has expired
         if (millis() - apStartTime >= AP_TIMEOUT_MS) {

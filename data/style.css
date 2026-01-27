@@ -464,9 +464,12 @@ h1 {
     font-size: 11px;
     margin-bottom: 16px;
     padding: 8px 12px;
-    background: var(--brackground-color);
+    background: var(--background-color);
     border-radius: 4px;
+}
 
+.light-theme .settings-note {
+    background: rgba(41, 98, 51, 0.1);
 }
 
 .settings-divider {
@@ -584,6 +587,7 @@ h1 {
     flex-direction: column;
     justify-content: center;
     gap: 0.7rem;
+    max-width: 200px;
 }
 
 .system-time-display {
@@ -617,6 +621,22 @@ h1 {
     text-align: left;
     margin-bottom: 1rem;
     font-size: 0.8rem;
+}
+
+.battery-status {
+    display: inline-block;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    /* max-width: 40px; */
+    /* width: 40px; */
+}
+
+.battery-indicator {
+    /* background: black; */
+    height: 20px;
+    margin-top: 0.7rem;
+    border-radius: 0.5rem;
 }
 
 /* Event Statistics */
@@ -794,7 +814,7 @@ h1 {
     padding: 0.5rem 0;
 }
 
-/* ------- DEBUG / TESTING ACTIVATION BUTTON -------- */
+/* ------- trigger now button -------- */
 .trigger-now-container {
     display: flex;
     justify-content: center;

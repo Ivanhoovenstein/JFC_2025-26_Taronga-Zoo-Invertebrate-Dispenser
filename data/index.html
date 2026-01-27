@@ -19,7 +19,7 @@
                         <div class="mode-label-title">
                             <h3>Active Mode</h3>
                             <button class="compartment-check-btn" id="compartment-check-btn">&#10035;</button>
-                            <!-- alternative button symbol: &#x2732; -->
+                            <!-- &#x2732; -->
                         </div>
                         <div class="mode-label-text">
                             <span class="active-mode-label" id="active-mode">Checking...</span>
@@ -41,7 +41,8 @@
 
                     <div class="battery-display">
                         <h3>Battery</h3>
-                        <span id="battery-status">Checking...</span>
+                        <span class="battery-status" id="battery-status">Checking...</span>
+                        <div class="battery-indicator" id="battery-indicator"></div>
                     </div>
 
                 </div>
@@ -179,8 +180,7 @@
                     <div class="wifi-settings-section">
 
                         <h3>WiFi Access Point</h3>
-                        <p class="settings-note">Configure the WiFi network name and 
-                            password. Changes will apply on next wake/restart.</p>
+                        <p class="settings-note">Configure the WiFi network name. Changes will apply on next wake/restart.</p>
 
                         <div class="form-group">
                             <label for="wifi-ssid">Network Name (SSID)</label>

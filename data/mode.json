@@ -5,5 +5,6 @@
     "regIntervalLastTriggerUnix":0,
     "randIntervalHours":2,
     "randIntervalMinutes":0,
+    "randIntervalBlockStartUnix": 0,
     "randIntervalNextTriggerUnix":0
 }
