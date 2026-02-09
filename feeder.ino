@@ -13,13 +13,14 @@
 #define I2C_SDA_PIN 33
 #define I2C_SCL_PIN 32
 #define RTC_ALARM_PIN 25    // DS3231 SQW pin connected 
-#define BUTTON_PIN 34       // Button for manual wake (pull-up)
-#define LED_PIN 27
+#define BUTTON_PIN 34       // Button for manual wake
+#define LED_PIN 14
+#define SERVO_TRANSISTOR_PIN 13
 
 // Servo global variables
 Servo myServo;
 
-const int servoPin = 26;
+const int servoPin = 12;
 int minPulse = 500;
 int maxPulse = 2500;
 const float MECH_RANGE = 360;
@@ -318,22 +319,69 @@ void enterDeepSleep() {
     // Save all data before sleeping
     saveAlarms();
     saveModeConfig();
+    saveCompartmentPosition();
     
+    // ----------------------------------------
+    // 1. DETACH SERVO (big power consumer)
+    // ----------------------------------------
+    if (myServo.attached()) {
+        myServo.detach();
+        Serial.println("Servo detached");
+    }
     
-    // Configure wake sources
-    // esp_sleep_enable_ext0_wakeup((gpio_num_t)BUTTON_PIN, HIGH);     // Button press
-    esp_sleep_enable_ext1_wakeup(1ULL << BUTTON_PIN, ESP_EXT1_WAKEUP_ANY_HIGH);
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)RTC_ALARM_PIN, 0);  // RTC alarm (SQW goes LOW)
+    // ----------------------------------------
+    // 2. TURN OFF WiFi
+    // ----------------------------------------
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_OFF);
+    delay(100);
+    Serial.println("WiFi turned off");
     
+    // ----------------------------------------
+    // 3. TURN OFF I2C / Wire
+    // ----------------------------------------
+    Wire.end();
+    Serial.println("I2C stopped");
+    
+    // ----------------------------------------
+    // 4. SET ALL UNUSED GPIOs TO LOW
+    // ----------------------------------------
+    // List ALL GPIO pins your ESP32 has that are NOT used as wake sources
+    // This is critical - floating pins can consume current
+    const int unusedPins[] = {
+        0, 2, 4, 5, 12, 13, 15,
+        16, 17, 18, 19, 20, 21,
+        22, 23
+        // EXCLUDE: 25 (RTC_ALARM_PIN), 32 (SCL), 33 (SDA), 34 (BUTTON_PIN)
+    };
 
+    for (int pin : unusedPins) {
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, LOW);
+    }
+    Serial.println("Unused GPIOs set low");
+
+    // turn off servo transistor
+    digitalWrite(SERVO_TRANSISTOR_PIN, LOW);
     
-    Serial.println("Wake sources configured:");
-    Serial.printf("  - RTC Alarm on GPIO %d\n", RTC_ALARM_PIN);
-    Serial.printf("  - Button on GPIO %d\n", BUTTON_PIN);
+    // ----------------------------------------
+    // 5. CONFIGURE WAKE SOURCES
+    // ----------------------------------------
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)RTC_ALARM_PIN, 0);  // RTC alarm (SQW goes LOW)
+    esp_sleep_enable_ext1_wakeup(1ULL << BUTTON_PIN, ESP_EXT1_WAKEUP_ANY_HIGH);  // Button
+    
+    // ----------------------------------------
+    // 6. DISABLE EVERYTHING ELSE
+    // ----------------------------------------
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+    
+    Serial.println("\nWake sources configured:");
+    Serial.printf("  - RTC Alarm on GPIO %d (active LOW)\n", RTC_ALARM_PIN);
+    Serial.printf("  - Button on GPIO %d (active HIGH)\n", BUTTON_PIN);
     Serial.println("Entering deep sleep NOW...");
     Serial.println("========================================\n");
     
-    delay(100); // Give serial time to finish
+    delay(100);  // Give serial time to flush
     
     // Enter deep sleep
     esp_deep_sleep_start();
@@ -893,6 +941,37 @@ void initSettings() {
 // ----------------------------------------
 void registerRoutes() {
 
+    // Captive Portal Detection For Some Android Devices
+    server.on("/generate_204", HTTP_GET, []() {
+        setCORSHeaders();
+        server.sendHeader("Location", "http://" + WiFi.softAPIP().toString());
+        server.send(302, "text/plain", "");
+    });
+
+    server.on("/gen_204", HTTP_GET, []() {
+        setCORSHeaders();
+        server.sendHeader("Location", "http://" + WiFi.softAPIP().toString());
+        server.send(302, "text/plain", "");
+    });
+
+    server.on("/ncsi.txt", HTTP_GET, []() {
+        setCORSHeaders();
+        server.sendHeader("Location", "http://" + WiFi.softAPIP().toString());
+        server.send(302, "text/plain", "");
+    });
+
+    server.on("/connecttest.txt", HTTP_GET, []() {
+        setCORSHeaders();
+        server.sendHeader("Location", "http://" + WiFi.softAPIP().toString());
+        server.send(302, "text/plain", "");
+    });
+
+    server.on("/hotspot-detect.html", HTTP_GET, []() {
+        setCORSHeaders();
+        server.sendHeader("Location", "http://" + WiFi.softAPIP().toString());
+        server.send(302, "text/plain", "");
+    });
+
     // GET current servo position
     server.on("/api/servo", HTTP_GET, []() {
         setCORSHeaders();
@@ -1097,6 +1176,25 @@ void registerRoutes() {
     });
 
     server.on("/api/trigger-now", HTTP_OPTIONS, []() {
+        setCORSHeaders();
+        server.send(200, "text/plain", "");
+    });
+
+    // Reset Chamber positions (reset current chamber to 0) -> for refilling/ease of use
+    server.on("/api/reset-motor", HTTP_POST, []() {
+        setCORSHeaders();
+
+        Serial.println("Resetting Motor Position. Moving to Angle 0 (Dead Chamber).");
+        moveToAngle(0);
+
+        compartment = 0;
+        saveCompartmentPosition();
+
+
+        server.send(200, "text/plain", "OK");
+    });
+
+    server.on("/api/reset-motor", HTTP_OPTIONS, []() {
         setCORSHeaders();
         server.send(200, "text/plain", "");
     });
@@ -1459,14 +1557,26 @@ void registerRoutes() {
         }
         
         // Silently ignore common requests
-        if (uri == "/favicon.ico" || uri == "/generate_204") {
+        if (uri == "/favicon.ico") {
             server.send(204, "text/plain", "");
+            return;
+        }
+
+        // Redirect captive portal detection URLs (fallback)
+        if (uri.indexOf("generate_204") >= 0 || 
+            uri.indexOf("gen_204") >= 0 ||
+            uri.indexOf("ncsi") >= 0 ||
+            uri.indexOf("connecttest") >= 0) {
+            server.sendHeader("Location", "http://" + WiFi.softAPIP().toString());
+            server.send(302, "text/plain", "");
             return;
         }
         
         // Default 404 - serve index.html (for captive portal)
         Serial.println("404: " + uri);
-        serveStaticFile("/index.html", "text/html");
+
+        server.sendHeader("Location", "http://" + WiFi.softAPIP().toString());
+        server.send(302, "text/html", "");
     });
 }
 
@@ -1585,19 +1695,41 @@ void triggerActivation(bool noMode) {
     // activateRelay();
     // sendNotification();
     // logEvent();
-
+    
     advanceCompartment();
 
     bool success = true;
     String errorMessage = "";
+    String warning = "";
     
-    // Example error checking: TODO -> ADD MORE ERROR CHECKING!
     
+    if (!LittleFS.begin()) {
+        warning = "LittleFS not accessible - compartment position may not persist";
+        Serial.println("WARNING: " + warning);
+        logEvent("WARNING", modeConfig.activeMode, warning);
+        // Continue anyway - servo can still operate
+    }
+
     // Check if RTC is still working
     if (!rtc.begin(&Wire)) {
+        warning = "RTC communication error - clock may have lost power";
+        Serial.println("ERROR: " + warning);
+        logEvent("WARNING", modeConfig.activeMode, warning);
+    }
+
+    if (rtc.lostPower()) {
+        warning = "RTC lost power - time may be incorrect, battery may need replacement";
+        Serial.println("WARNING: " + warning);
+        logEvent("WARNING", modeConfig.activeMode, warning);
+    }
+
+    if (digitalRead(SERVO_TRANSISTOR_PIN) != HIGH) {
         success = false;
-        errorMessage = "RTC communication error - clock may have lost power";
+        errorMessage = "Servo power transistor failed to activate";
         Serial.println("ERROR: " + errorMessage);
+        logEvent("ERROR", modeConfig.activeMode, errorMessage);
+        Serial.println("========================================");
+        return;
     }
 
     String compartmentActivationStr = String(compartment + 1); // +1 to fix index
@@ -1628,11 +1760,13 @@ void moveToAngle(int angle) {
   float newAngle = angle;
   float oldAngle = angle - (360 / maxCompartment);
 
-  for (int i = oldAngle; i < newAngle; i = i + 5) {
-    int pulse = map(i, 0, MECH_RANGE, minPulse, maxPulse);
+//   for (int i = oldAngle; i <= newAngle; i = i + 5) {
+    // int pulse = map(i, 0, MECH_RANGE, minPulse, maxPulse);
+//     myServo.writeMicroseconds(pulse);
+//   }
+
+    int pulse = map(angle, 0, MECH_RANGE, minPulse, maxPulse);
     myServo.writeMicroseconds(pulse);
-    delay(1);
-  }
 
 //   Serial.print("Angle: ");
 //   Serial.print(angle);
@@ -1646,17 +1780,16 @@ void advanceCompartment() {
   loadCompartmentPosition();
 
   Serial.println(compartment);
-
-  int angle = (compartment + 1) * 60;
+  int offset = 5;
+  int angle = (compartment + 1) * 60 + offset;
 
   if (angle >= 300) {
     moveToAngle(angle);
     delay(2000);          // allow last item to drop
     compartment = 0;
 
-    saveCompartmentPosition();
-
     moveToAngle(0);      // return to deadspace
+    saveCompartmentPosition();
     return;
   }
 
@@ -1672,16 +1805,16 @@ float checkVoltage() {
 }
 
 int voltageToSOC(float v) { //piecewise approximation of the battery's charge
-  if (v >= 8.40) return 100;
-  if (v >= 8.20) return 90;
-  if (v >= 8.00) return 80;
-  if (v >= 7.80) return 70;
-  if (v >= 7.60) return 60;
-  if (v >= 7.40) return 50;
-  if (v >= 7.20) return 40;
-  if (v >= 7.00) return 30;
-  if (v >= 6.80) return 20;
-  if (v >= 6.60) return 10;
+  if (v >= 8.25) return 100;
+  if (v >= 8.10) return 90;
+  if (v >= 7.90) return 80;
+  if (v >= 7.70) return 70;
+  if (v >= 7.50) return 60;
+  if (v >= 7.30) return 50;
+  if (v >= 7.10) return 40;
+  if (v >= 6.90) return 30;
+  if (v >= 6.70) return 20;
+  if (v >= 6.50) return 10;
   return 0;
 }
 
@@ -1707,6 +1840,10 @@ void setup() {
     pinMode(RTC_ALARM_PIN, INPUT_PULLUP);
     pinMode(BUTTON_PIN, INPUT);
     pinMode(LED_PIN, OUTPUT);
+    pinMode(SERVO_TRANSISTOR_PIN, OUTPUT);
+
+    // turn on transistor
+    digitalWrite(SERVO_TRANSISTOR_PIN, HIGH);
 
     myServo.attach(servoPin); // Attach the servo to the pin
     myServo.setPeriodHertz(50);
@@ -1750,6 +1887,8 @@ void setup() {
         // while (1) { delay(10); }
     }
     Serial.println("INA219 (Battery Sensor) Found");
+
+    runBatteryCheck();
 
     loadCompartmentPosition();
 
@@ -1862,8 +2001,6 @@ void loop() {
         dnsServer.processNextRequest();
         server.handleClient();
         checkTriggers();
-
-        // runBatteryCheck();
         
         // Check if AP timeout has expired
         if (millis() - apStartTime >= AP_TIMEOUT_MS) {
