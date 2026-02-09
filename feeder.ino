@@ -42,7 +42,7 @@ DNSServer dnsServer;
 
 const byte DNS_PORT = 53;
 String currentSSID = "Taronga Zoo Curlew Feeder";
-String currentPassword = "12345678";  // change this!
+String currentPassword = "12345678";  // Password Not Currently Used
 
 struct Alarm {
     uint32_t id;
