@@ -8,8 +8,9 @@ const alarmTimeInput = document.getElementById('alarm-time');
 const alarmsListEl = document.getElementById('alarms-list');
 const setTimeSaveBtn = document.getElementById('set-times-save-btn');
 
-// Sync Time Elements
+// Settings Buttons Elements
 const syncTimeBtn = document.getElementById('sync-time-btn');
+const resetMotorBtn = document.getElementById('reset-motor-btn');
 
 // Regular Interval Elements
 const regIntervalHoursInput = document.getElementById('reg-interval-hours');
@@ -638,6 +639,13 @@ function setupEventListeners() {
     // Sync System Time button
     syncTimeBtn.addEventListener('click', syncTime);
 
+    resetMotorBtn.addEventListener('click', async () => {
+        if (await customConfirmModal(
+            'This will reset the chambers to their default positions. Are you sure?')) {
+                await resetMotorPos();
+            }
+    });
+
     // Save active mode buttons
     setTimeSaveBtn.addEventListener('click', setModeToSetTimes);
     regIntervalSaveBtn.addEventListener('click', setModeToRegInterval);
@@ -676,7 +684,6 @@ function setupEventListeners() {
         triggerNowBtn.addEventListener('click', async () => {
             if (await customConfirmModal('Are you sure?')) {
                 await triggerNow();
-                showNotification('Activation Triggered Now!');
             }
         });
     }
@@ -691,6 +698,13 @@ function setupEventListeners() {
         }
     });
 
+}
+
+async function resetMotorPos() {
+    const result = await apiPost('/api/reset-motor', {});
+    if (result) {
+        showNotification('Chambers reset to default positions.');
+    }
 }
 
 function getAESTOffset() {
@@ -837,7 +851,7 @@ function percentageToColor(percentage) {
 
 // Get Battery Charge
 async function loadBatteryCharge() {
-    const data = await apiGet('/api/mode');
+    const data = await apiGet('/api/battery');
     if (data) {
         const batteryStatus = document.getElementById('battery-status');
         batteryStatus.textContent = data.battery + "%";
